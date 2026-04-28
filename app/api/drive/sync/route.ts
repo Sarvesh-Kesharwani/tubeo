@@ -19,7 +19,13 @@ export async function GET() {
     return Response.json({ error: 'Not signed in' }, { status: 401 });
   }
 
-  let cookieStore: ChannelPreferenceStore = { channels: [], spaces: [], view: DEFAULT_VIEW_PREFERENCES };
+  let cookieStore: ChannelPreferenceStore = {
+    channels: [],
+    spaces: [],
+    view: DEFAULT_VIEW_PREFERENCES,
+    updatesChannelIds: [],
+    savedVideos: [],
+  };
   let driveData = null;
   let localMeta = { updatedAt: null as string | null, dirty: false };
   try {
@@ -87,6 +93,8 @@ export async function POST() {
         channels: driveOnly,
         spaces: driveData.spaces,
         view: driveData.view,
+        updatesChannelIds: driveData.updatesChannelIds,
+        savedVideos: driveData.savedVideos,
       });
       await markCookieChannelStoreSynced(driveData.updatedAt);
       await markDriveSyncHydrated();
@@ -106,6 +114,8 @@ export async function POST() {
       channels: cookieOnly,
       spaces: localSpaces,
       view: localView,
+      updatesChannelIds: cookieStore.updatesChannelIds,
+      savedVideos: cookieStore.savedVideos,
       quota: driveData?.quota,
     });
     await markCookieChannelStoreSynced(syncedAt);
@@ -147,6 +157,8 @@ export async function PUT() {
     channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
     spaces: driveData.spaces,
     view: driveData.view,
+    updatesChannelIds: driveData.updatesChannelIds,
+    savedVideos: driveData.savedVideos,
   });
   await markCookieChannelStoreSynced(driveData.updatedAt);
   await markDriveSyncHydrated();

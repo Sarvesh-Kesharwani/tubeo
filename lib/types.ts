@@ -29,12 +29,22 @@ export interface ChannelsViewPreferences extends MixedFeedViewPreferences {
 export interface ViewPreferences {
   home: MixedFeedViewPreferences;
   channels: ChannelsViewPreferences;
+  updates: MixedFeedViewPreferences;
+}
+
+export interface SavedVideo {
+  id: string;
+  url: string;
+  note: string;
+  addedAt: string;
 }
 
 export interface ChannelPreferenceStore {
   channels: ChannelPreference[];
   spaces: string[];
   view: ViewPreferences;
+  updatesChannelIds: string[];
+  savedVideos: SavedVideo[];
 }
 
 export interface DailyQuotaUsage {
@@ -54,6 +64,14 @@ export interface Video {
   durationSec?: number;
   viewCount?: number;
   isShort?: boolean;
+}
+
+export interface VideoComment {
+  id: string;
+  author: string;
+  text: string;
+  likeCount: number;
+  sentiment: 'positive' | 'negative' | 'neutral';
 }
 
 export interface ChannelWithVideos {

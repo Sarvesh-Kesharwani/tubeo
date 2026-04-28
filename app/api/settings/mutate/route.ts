@@ -39,6 +39,8 @@ async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
       channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
       spaces: driveData.spaces,
       view: driveData.view,
+      updatesChannelIds: driveData.updatesChannelIds,
+      savedVideos: driveData.savedVideos,
     });
     await markCookieChannelStoreSynced(driveData.updatedAt);
   } else if (localMeta.updatedAt) {
@@ -94,6 +96,19 @@ function ok(data: Record<string, unknown>) {
 
 function fail(message: string, status = 400) {
   return Response.json({ ok: false, error: message }, { status });
+}
+
+function parseVideoId(raw: string): string | null {
+  const value = raw.trim();
+  if (/^[\w-]{11}$/.test(value)) return value;
+
+  try {
+    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
+    if (url.hostname.includes('youtu.be')) return url.pathname.split('/').filter(Boolean)[0] ?? null;
+    return url.searchParams.get('v') ?? url.pathname.split('/').filter(Boolean).at(-1) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: Request) {
@@ -180,6 +195,8 @@ export async function POST(req: Request) {
         ),
         spaces: store.spaces.map((space) => (space === existingSpace ? renamedSpace : space)),
         view: store.view,
+        updatesChannelIds: store.updatesChannelIds,
+        savedVideos: store.savedVideos,
       });
       await markCookieChannelStoreDirty();
       return ok({ success: renamedSpace });
@@ -200,9 +217,101 @@ export async function POST(req: Request) {
         ),
         spaces: store.spaces.filter((space) => space !== targetSpace),
         view: store.view,
+        updatesChannelIds: store.updatesChannelIds,
+        savedVideos: store.savedVideos,
       });
       await markCookieChannelStoreDirty();
       return ok({ success: targetSpace });
+    }
+
+    if (type === 'reorderSpace') {
+      const space = normalizeSpaceName(String(body.space ?? ''));
+      const direction = String(body.direction ?? '');
+      const store = await getCookieChannelStore();
+      const spaces = [...store.spaces];
+      const index = spaces.indexOf(space);
+      if (index === -1) return fail('That space no longer exists.');
+
+      const nextIndex = direction === 'up' ? index - 1 : direction === 'down' ? index + 1 : index;
+      if (nextIndex < 0 || nextIndex >= spaces.length) return ok({ success: space });
+
+      [spaces[index], spaces[nextIndex]] = [spaces[nextIndex], spaces[index]];
+      await setCookieChannelStore({ ...store, spaces });
+      await markCookieChannelStoreDirty();
+      return ok({ success: space });
+    }
+
+    if (type === 'setSpaceOrder') {
+      const incoming = Array.isArray(body.spaces) ? body.spaces.map((s) => normalizeSpaceName(String(s))) : [];
+      const store = await getCookieChannelStore();
+      const known = new Set(store.spaces);
+      const seen = new Set<string>();
+      const ordered: string[] = [];
+      for (const space of incoming) {
+        if (!known.has(space) || seen.has(space)) continue;
+        seen.add(space);
+        ordered.push(space);
+      }
+      for (const space of store.spaces) {
+        if (seen.has(space)) continue;
+        seen.add(space);
+        ordered.push(space);
+      }
+
+      await setCookieChannelStore({ ...store, spaces: ordered });
+      await markCookieChannelStoreDirty();
+      return ok({ success: ordered.length });
+    }
+
+    if (type === 'setUpdatesChannels') {
+      const channelIds = Array.isArray(body.channelIds) ? body.channelIds.map(String) : [];
+      const store = await getCookieChannelStore();
+      await setCookieChannelStore({ ...store, updatesChannelIds: channelIds });
+      await markCookieChannelStoreDirty();
+      revalidatePath('/updates');
+      return ok({ success: channelIds.length });
+    }
+
+    if (type === 'addSavedVideo') {
+      const url = String(body.url ?? '').trim();
+      const note = String(body.note ?? '').trim();
+      const id = parseVideoId(url);
+      if (!id) return fail('Enter a valid YouTube video URL.');
+
+      const store = await getCookieChannelStore();
+      const existing = store.savedVideos.filter((video) => video.id !== id);
+      await setCookieChannelStore({
+        ...store,
+        savedVideos: [{ id, url: `https://www.youtube.com/watch?v=${id}`, note, addedAt: new Date().toISOString() }, ...existing],
+      });
+      await markCookieChannelStoreDirty();
+      revalidatePath('/videos');
+      return ok({ success: id });
+    }
+
+    if (type === 'updateSavedVideo') {
+      const id = String(body.id ?? '').trim();
+      const note = String(body.note ?? '').trim();
+      const store = await getCookieChannelStore();
+      await setCookieChannelStore({
+        ...store,
+        savedVideos: store.savedVideos.map((video) => (video.id === id ? { ...video, note } : video)),
+      });
+      await markCookieChannelStoreDirty();
+      revalidatePath('/videos');
+      return ok({ success: id });
+    }
+
+    if (type === 'removeSavedVideo') {
+      const id = String(body.id ?? '').trim();
+      const store = await getCookieChannelStore();
+      await setCookieChannelStore({
+        ...store,
+        savedVideos: store.savedVideos.filter((video) => video.id !== id),
+      });
+      await markCookieChannelStoreDirty();
+      revalidatePath('/videos');
+      return ok({ success: id });
     }
 
     return fail('Unsupported action type');

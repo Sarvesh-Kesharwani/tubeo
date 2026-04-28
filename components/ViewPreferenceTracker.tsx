@@ -9,7 +9,7 @@ export function ViewPreferenceTracker({
   media,
   space,
 }: {
-  page: 'home' | 'channels';
+  page: 'home' | 'channels' | 'updates';
   range: TimeRange;
   media: MediaFilter;
   space?: string;

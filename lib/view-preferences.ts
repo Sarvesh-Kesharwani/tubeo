@@ -13,6 +13,10 @@ export const DEFAULT_VIEW_PREFERENCES: ViewPreferences = {
     media: DEFAULT_MEDIA_FILTER,
     space: CHANNELS_OVERVIEW_SPACE,
   },
+  updates: {
+    range: DEFAULT_RANGE,
+    media: DEFAULT_MEDIA_FILTER,
+  },
 };
 
 export function normalizeViewSpace(value: string | undefined | null): string {
@@ -34,6 +38,10 @@ export function normalizeViewPreferences(value?: Partial<ViewPreferences> | null
       range: parseRange(value?.channels?.range),
       media: parseMediaFilter(value?.channels?.media),
       space: normalizeViewSpace(value?.channels?.space),
+    },
+    updates: {
+      range: parseRange(value?.updates?.range),
+      media: parseMediaFilter(value?.updates?.media),
     },
   };
 }

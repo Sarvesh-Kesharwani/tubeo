@@ -16,6 +16,7 @@ import type {
   QuotaSummary,
   TimeRange,
   Video,
+  VideoComment,
 } from './types';
 import { getWhitelistedChannelIds } from './whitelist';
 
@@ -66,8 +67,30 @@ interface YTPlaylistItemsResp {
 interface YTVideoListResp {
   items: Array<{
     id: string;
+    snippet?: {
+      title: string;
+      publishedAt: string;
+      channelId: string;
+      channelTitle: string;
+      thumbnails: { medium?: { url: string }; high?: { url: string }; default?: { url: string } };
+    };
     contentDetails?: { duration?: string };
     statistics?: { viewCount?: string };
+  }>;
+}
+
+interface YTCommentThreadsResp {
+  items: Array<{
+    id: string;
+    snippet: {
+      topLevelComment: {
+        snippet: {
+          authorDisplayName: string;
+          textDisplay: string;
+          likeCount: number;
+        };
+      };
+    };
   }>;
 }
 
@@ -343,6 +366,90 @@ export async function getLatestVideosForChannel(
   now = getRequestTime(),
 ): Promise<Video[]> {
   return (await getLatestVideosForChannelWithQuota(channel, range, mediaFilter, max, now)).videos;
+}
+
+export async function getVideosByIds(videoIds: string[]): Promise<Video[]> {
+  const ids = [...new Set(videoIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return [];
+
+  const data = await yt<YTVideoListResp>(
+    'videos',
+    {
+      part: 'snippet,contentDetails,statistics',
+      id: ids.join(','),
+      maxResults: '50',
+    },
+    600,
+  );
+
+  const videos = data.items.map((item) => {
+    const durationSec = parseDurationToSeconds(item.contentDetails?.duration);
+    const parsedViews = Number(item.statistics?.viewCount);
+    return {
+      id: item.id,
+      title: item.snippet?.title ?? item.id,
+      thumbnail:
+        item.snippet?.thumbnails.high?.url ??
+        item.snippet?.thumbnails.medium?.url ??
+        item.snippet?.thumbnails.default?.url ??
+        '',
+      publishedAt: item.snippet?.publishedAt ?? new Date(0).toISOString(),
+      channelId: item.snippet?.channelId ?? '',
+      channelTitle: item.snippet?.channelTitle ?? 'YouTube',
+      durationSec,
+      viewCount: Number.isFinite(parsedViews) ? parsedViews : undefined,
+      isShort: isShortByDuration(durationSec),
+    } satisfies Video;
+  });
+
+  const order = new Map(ids.map((id, index) => [id, index]));
+  return videos.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+}
+
+function classifyComment(text: string): VideoComment['sentiment'] {
+  const value = text.toLowerCase();
+  const positive = ['good', 'great', 'love', 'best', 'helpful', 'amazing', 'nice', 'thanks'];
+  const negative = ['bad', 'worst', 'hate', 'fake', 'wrong', 'boring', 'terrible', 'useless'];
+  if (positive.some((word) => value.includes(word))) return 'positive';
+  if (negative.some((word) => value.includes(word))) return 'negative';
+  return 'neutral';
+}
+
+export async function getVideoComments(videoId: string): Promise<{
+  top: VideoComment[];
+  positive: VideoComment[];
+  negative: VideoComment[];
+}> {
+  const data = await yt<YTCommentThreadsResp>(
+    'commentThreads',
+    {
+      part: 'snippet',
+      videoId,
+      order: 'relevance',
+      maxResults: '50',
+      textFormat: 'plainText',
+    },
+    600,
+  );
+
+  const comments = data.items.map((item) => {
+    const snippet = item.snippet.topLevelComment.snippet;
+    const text = snippet.textDisplay.replace(/<[^>]*>/g, '').trim();
+    return {
+      id: item.id,
+      author: snippet.authorDisplayName,
+      text,
+      likeCount: snippet.likeCount,
+      sentiment: classifyComment(text),
+    } satisfies VideoComment;
+  });
+
+  const byLikes = [...comments].sort((a, b) => b.likeCount - a.likeCount);
+  return {
+    top: byLikes.slice(0, 5),
+    positive: byLikes.filter((comment) => comment.sentiment === 'positive').slice(0, 5),
+    negative: byLikes.filter((comment) => comment.sentiment === 'negative').slice(0, 5),
+  };
 }
 
 export const getChannelGroupedFeed = cache(async function getChannelGroupedFeed(

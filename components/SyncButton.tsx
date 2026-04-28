@@ -103,11 +103,25 @@ export function SyncButton() {
     return () => window.removeEventListener(CHANNELS_CHANGED_EVENT, onChannelsChanged);
   }, [checkSync, pushSync]);
 
-  // Poll every 30s
+  // Poll every 30s — keep polling in no-auth so token refresh recovers automatically
   useEffect(() => {
-    if (state === 'no-auth') return;
     const id = setInterval(() => void checkSync(), 30_000);
     return () => clearInterval(id);
+  }, [checkSync]);
+
+  useEffect(() => {
+    const onResume = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (state === 'no-auth') sessionStorage.removeItem(PULLED_KEY);
+      void checkSync();
+    };
+
+    window.addEventListener('focus', onResume);
+    document.addEventListener('visibilitychange', onResume);
+    return () => {
+      window.removeEventListener('focus', onResume);
+      document.removeEventListener('visibilitychange', onResume);
+    };
   }, [checkSync, state]);
 
   if (state === 'no-auth') return null;

@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   }
 
   const page = String(body.page ?? '').trim();
-  if (page !== 'home' && page !== 'channels') {
+  if (page !== 'home' && page !== 'channels' && page !== 'updates') {
     return fail('Unsupported page');
   }
 
@@ -43,6 +43,13 @@ export async function POST(req: Request) {
             space: normalizeViewSpace(String(body.space ?? existing.channels.space)),
           }
         : existing.channels,
+    updates:
+      page === 'updates'
+        ? {
+            range: parseRange(String(body.range ?? existing.updates.range)),
+            media: parseMediaFilter(String(body.media ?? existing.updates.media)),
+          }
+        : existing.updates,
   });
 
   if (sameViewPreferences(existing, next)) {
