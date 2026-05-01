@@ -5,14 +5,15 @@ import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { QuotaUsageTracker } from '@/components/QuotaUsageTracker';
 import { SpaceTabs } from '@/components/SpaceTabs';
 import { TimeFilter } from '@/components/TimeFilter';
+import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
+import { getCookieViewPreferences } from '@/lib/channels-cookie';
 import { parseMediaFilter } from '@/lib/media';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
 import { parseRange } from '@/lib/time';
-import { DEFAULT_CHANNEL_SPACE } from '@/lib/types';
+import { CHANNELS_OVERVIEW_SPACE, DEFAULT_CHANNEL_SPACE } from '@/lib/types';
 import { getChannelGroupedFeedWithQuota } from '@/lib/youtube';
 import { getWhitelistedChannelPreferences, getWhitelistedChannelSpaces } from '@/lib/whitelist';
-const OVERVIEW_SPACE = 'all';
 
 export default async function ChannelsPage({
   searchParams,
@@ -20,9 +21,10 @@ export default async function ChannelsPage({
   searchParams: Promise<{ range?: string; space?: string; media?: string }>;
 }) {
   const sp = await searchParams;
-  const range = parseRange(sp.range);
-  const activeSpace = (sp.space ?? '').trim();
-  const media = parseMediaFilter(sp.media);
+  const view = await getCookieViewPreferences();
+  const range = parseRange(sp.range ?? view.channels.range);
+  const activeSpace = (sp.space ?? view.channels.space ?? '').trim();
+  const media = parseMediaFilter(sp.media ?? view.channels.media);
 
   return (
     <div className="space-y-6">
@@ -85,7 +87,8 @@ async function Grouped({
   let groups;
   let quotaUnits = 0;
   try {
-    const result = await getChannelGroupedFeedWithQuota(range, media, 6, now);
+    const perChannel = range === 'all' ? 50 : 12;
+    const result = await getChannelGroupedFeedWithQuota(range, media, perChannel, now);
     groups = result.groups;
     quotaUnits = result.quota.refreshCost;
   } catch (error) {
@@ -113,14 +116,14 @@ async function Grouped({
   const activeSpaceValue =
     activeSpace && activeSpace !== DEFAULT_CHANNEL_SPACE && orderedSpaces.includes(activeSpace)
       ? activeSpace
-      : OVERVIEW_SPACE;
+      : CHANNELS_OVERVIEW_SPACE;
   const filteredGroups =
-    activeSpaceValue === OVERVIEW_SPACE
+    activeSpaceValue === CHANNELS_OVERVIEW_SPACE
       ? visibleGroups
       : visibleGroups.filter((group) => group.space === activeSpaceValue);
 
   const tabs = [
-    { value: OVERVIEW_SPACE, label: DEFAULT_CHANNEL_SPACE, count: visibleGroups.length },
+    { value: CHANNELS_OVERVIEW_SPACE, label: DEFAULT_CHANNEL_SPACE, count: visibleGroups.length },
     ...orderedSpaces.filter((space) => space !== DEFAULT_CHANNEL_SPACE).map((space) => ({
       value: space,
       label: space,
@@ -136,9 +139,10 @@ async function Grouped({
           trackingKey={`channels:${range}:${activeSpaceValue}:${media}:${now}`}
         />
       )}
+      <ViewPreferenceTracker page="channels" range={range} media={media} space={activeSpaceValue} />
       <SpaceTabs activeSpace={activeSpaceValue} tabs={tabs} />
 
-      {activeSpaceValue === OVERVIEW_SPACE ? (
+      {activeSpaceValue === CHANNELS_OVERVIEW_SPACE ? (
         <div className="space-y-4">
           {orderedSpaces.map((space) => {
             const spaceGroups = visibleGroups.filter((group) => group.space === space);

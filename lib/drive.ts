@@ -6,7 +6,10 @@ import {
   type DailyQuotaUsage,
   type ChannelPreference,
   type ChannelPreferenceStore,
+  type SavedVideo,
+  type ViewPreferences,
 } from './types';
+import { DEFAULT_VIEW_PREFERENCES, normalizeViewPreferences } from './view-preferences';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
@@ -20,6 +23,9 @@ export interface DriveChannelData {
   channelIds?: string[];
   channels?: ChannelPreference[];
   spaces?: string[];
+  view?: Partial<ViewPreferences>;
+  updatesChannelIds?: string[];
+  savedVideos?: SavedVideo[];
   quota?: DailyQuotaUsage;
   updatedAt: string; // ISO
 }
@@ -58,6 +64,31 @@ function dedupeChannels(channels: ChannelPreference[]): ChannelPreference[] {
     if (!id || seen.has(id)) continue;
     seen.add(id);
     out.push({ id, space: normalizeSpaceName(channel.space) });
+  }
+
+  return out;
+}
+
+function normalizeUpdatesChannelIds(value: string[] | undefined, channelIds: string[]): string[] {
+  const valid = new Set(channelIds);
+  return [...new Set((value ?? []).map((id) => id.trim()).filter((id) => valid.has(id)))];
+}
+
+function normalizeSavedVideos(value: SavedVideo[] | undefined): SavedVideo[] {
+  const seen = new Set<string>();
+  const out: SavedVideo[] = [];
+
+  for (const item of value ?? []) {
+    const id = item?.id?.trim();
+    const url = item?.url?.trim();
+    if (!id || !url || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      url,
+      note: item.note?.trim() ?? '',
+      addedAt: item.addedAt || new Date().toISOString(),
+    });
   }
 
   return out;
@@ -117,6 +148,9 @@ function normalizeDriveStore(data: DriveChannelData | null): DriveSyncState | nu
   return {
     channels: normalizedChannels,
     spaces,
+    view: normalizeViewPreferences(data.view),
+    updatesChannelIds: normalizeUpdatesChannelIds(data.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
+    savedVideos: normalizeSavedVideos(data.savedVideos),
     quota: normalizeQuotaUsage(data.quota),
     updatedAt: data.updatedAt ?? new Date(0).toISOString(),
   };
@@ -331,11 +365,15 @@ export async function writeDriveChannels(accessToken: string, store: DriveWriteS
     ...store.spaces,
     ...normalizedChannels.map((channel) => channel.space),
   ]);
+  const normalizedView = normalizeViewPreferences(store.view ?? DEFAULT_VIEW_PREFERENCES);
   const normalizedQuota = normalizeQuotaUsage(store.quota);
   const body: DriveChannelData = {
     channels: normalizedChannels,
     channelIds: normalizedChannels.map((channel) => channel.id),
     spaces: normalizedSpaces,
+    view: normalizedView,
+    updatesChannelIds: normalizeUpdatesChannelIds(store.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
+    savedVideos: normalizeSavedVideos(store.savedVideos),
     quota: normalizedQuota,
     updatedAt: new Date().toISOString(),
   };
@@ -359,12 +397,24 @@ export async function writeDriveChannels(accessToken: string, store: DriveWriteS
 export async function recordDriveQuotaUsage(
   accessToken: string,
   units: number,
-  fallbackStore: ChannelPreferenceStore = { channels: [], spaces: [DEFAULT_CHANNEL_SPACE] },
+  fallbackStore: ChannelPreferenceStore = {
+    channels: [],
+    spaces: [DEFAULT_CHANNEL_SPACE],
+    view: DEFAULT_VIEW_PREFERENCES,
+    updatesChannelIds: [],
+    savedVideos: [],
+  },
 ): Promise<DailyQuotaUsage> {
   const normalizedUnits = Math.max(0, Math.ceil(units));
   const existing = await readDriveChannels(accessToken);
   const baseStore: ChannelPreferenceStore = existing
-    ? { channels: existing.channels, spaces: existing.spaces }
+    ? {
+        channels: existing.channels,
+        spaces: existing.spaces,
+        view: existing.view,
+        updatesChannelIds: existing.updatesChannelIds,
+        savedVideos: existing.savedVideos,
+      }
     : fallbackStore;
   const quota = normalizeQuotaUsage(existing?.quota);
   const nextQuota: DailyQuotaUsage = {
@@ -376,6 +426,9 @@ export async function recordDriveQuotaUsage(
   await writeDriveChannels(accessToken, {
     channels: baseStore.channels,
     spaces: baseStore.spaces,
+    view: baseStore.view,
+    updatesChannelIds: baseStore.updatesChannelIds,
+    savedVideos: baseStore.savedVideos,
     quota: nextQuota,
   });
 

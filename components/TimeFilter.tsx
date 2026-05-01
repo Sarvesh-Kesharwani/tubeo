@@ -15,6 +15,22 @@ export function TimeFilter({ active }: { active: TimeRange }) {
     return `${pathname}?${params.toString()}`;
   }
 
+  function persistRange(range: TimeRange) {
+    const page = pathname === '/channels' ? 'channels' : pathname === '/updates' ? 'updates' : 'home';
+    const media = sp.get('media') ?? 'all';
+    const space = sp.get('space') ?? undefined;
+
+    void fetch('/api/view-preferences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page, range, media, space }),
+    }).then((response) => {
+      if (response.ok) {
+        window.dispatchEvent(new CustomEvent('tubeo-channels-changed', { detail: { autoSync: true } }));
+      }
+    });
+  }
+
   return (
     <div className="flex flex-wrap gap-2">
       {TIME_RANGES.map((r) => {
@@ -23,6 +39,7 @@ export function TimeFilter({ active }: { active: TimeRange }) {
           <Link
             key={r.value}
             href={hrefFor(r.value)}
+            onClick={() => persistRange(r.value)}
             className={`chip ${isActive ? 'chip-active' : ''}`}
             scroll={false}
           >

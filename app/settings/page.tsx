@@ -3,6 +3,7 @@ import { AddSpaceForm } from '@/components/AddSpaceForm';
 import { ChannelSettingsRow } from '@/components/ChannelSettingsRow';
 import { QuotaCard } from '@/components/QuotaCard';
 import { SpaceSettingsRow } from '@/components/SpaceSettingsRow';
+import { SpacesManager, type SpaceItem } from '@/components/SpacesManager';
 import { getSession } from '@/lib/session';
 import {
   getEnvChannelIds,
@@ -33,12 +34,38 @@ export default async function SettingsPage() {
   const quota = canViewQuota ? await getYouTubeQuotaSummary(allIds.length, session?.accessToken) : null;
 
   const channelMap = new Map(channels.map((channel) => [channel.id, channel]));
-  const preferencesBySpace = new Map(
-    spaces.map((space) => [
+
+  const items: SpaceItem[] = spaces.map((space) => {
+    const groupedPreferences = preferences.filter((channel) => channel.space === space);
+    return {
       space,
-      preferences.filter((channelPreference) => channelPreference.space === space),
-    ]),
-  );
+      count: groupedPreferences.length,
+      controls: <SpaceSettingsRow space={space} />,
+      channels:
+        groupedPreferences.length === 0 ? (
+          <p className="rounded-2xl border-2 border-dashed border-duo-border bg-duo-soft/60 px-3 py-2 text-xs font-bold text-duo-mute">
+            No channels in this space yet.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {groupedPreferences.map((channelPreference) => {
+              const channel = channelMap.get(channelPreference.id);
+              return (
+                <ChannelSettingsRow
+                  key={channelPreference.id}
+                  id={channelPreference.id}
+                  title={channel?.title}
+                  thumbnail={channel?.thumbnail}
+                  fromEnv={envIds.includes(channelPreference.id)}
+                  currentSpace={channelPreference.space}
+                  spaces={spaces}
+                />
+              );
+            })}
+          </ul>
+        ),
+    };
+  });
 
   return (
     <div suppressHydrationWarning className="max-w-3xl space-y-8">
@@ -46,62 +73,29 @@ export default async function SettingsPage() {
         <span aria-hidden>⚙️</span> Channels
       </h1>
 
+      {canViewQuota && quota && <QuotaCard quota={quota} />}
+
       <section className="card p-5 space-y-4">
         <h2 className="font-extrabold text-duo-ink">Add a channel</h2>
         <AddChannelForm />
       </section>
 
-      <section className="card p-5 space-y-4">
-        <h2 className="font-extrabold text-duo-ink">Create a space</h2>
+      <section className="card p-5 space-y-5">
+        <div className="space-y-1">
+          <h2 className="font-extrabold text-duo-ink">Spaces &amp; channels</h2>
+          <p className="text-xs font-bold text-duo-ink/50">
+            Drag a space card by its header to reorder. Rename or delete spaces inline. Channels in each space stay grouped here.
+          </p>
+        </div>
         <AddSpaceForm />
-        {spaces.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-sm font-bold text-duo-ink/60">Existing spaces</p>
-            {spaces.map((space) => (
-              <SpaceSettingsRow key={space} space={space} />
-            ))}
-          </div>
+        {spaces.length === 0 ? (
+          <p className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-5 text-sm font-bold text-duo-mute">
+            No spaces yet. Create one above.
+          </p>
+        ) : (
+          <SpacesManager items={items} />
         )}
       </section>
-
-      {canViewQuota && quota && <QuotaCard quota={quota} />}
-
-      {preferences.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="font-extrabold text-duo-ink">Your channels</h2>
-          <div className="space-y-5">
-            {spaces.map((space) => {
-              const groupedPreferences = preferencesBySpace.get(space) ?? [];
-              if (groupedPreferences.length === 0) return null;
-
-              return (
-                <div key={space} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-extrabold text-duo-ink">{space}</h3>
-                    <span className="chip cursor-default">{groupedPreferences.length}</span>
-                  </div>
-                  <ul className="space-y-2">
-                    {groupedPreferences.map((channelPreference) => {
-                      const channel = channelMap.get(channelPreference.id);
-                      return (
-                        <ChannelSettingsRow
-                          key={channelPreference.id}
-                          id={channelPreference.id}
-                          title={channel?.title}
-                          thumbnail={channel?.thumbnail}
-                          fromEnv={envIds.includes(channelPreference.id)}
-                          currentSpace={channelPreference.space}
-                          spaces={spaces}
-                        />
-                      );
-                    })}
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

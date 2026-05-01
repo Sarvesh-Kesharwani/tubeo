@@ -4,6 +4,8 @@ import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { MixedFeedClient } from '@/components/MixedFeedClient';
 import { QuotaUsageTracker } from '@/components/QuotaUsageTracker';
 import { TimeFilter } from '@/components/TimeFilter';
+import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
+import { getCookieViewPreferences } from '@/lib/channels-cookie';
 import { parseMediaFilter } from '@/lib/media';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
@@ -17,8 +19,9 @@ export default async function MixedPage({
   searchParams: Promise<{ range?: string; media?: string }>;
 }) {
   const sp = await searchParams;
-  const range = parseRange(sp.range);
-  const media = parseMediaFilter(sp.media);
+  const view = await getCookieViewPreferences();
+  const range = parseRange(sp.range ?? view.home.range);
+  const media = parseMediaFilter(sp.media ?? view.home.media);
 
   return (
     <div className="space-y-6">
@@ -35,6 +38,7 @@ export default async function MixedPage({
       <Suspense key={`${range}:${media}`} fallback={<FeedSkeleton />}>
         <Feed range={range} media={media} />
       </Suspense>
+      <ViewPreferenceTracker page="home" range={range} media={media} />
     </div>
   );
 }

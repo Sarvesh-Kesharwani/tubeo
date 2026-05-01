@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type SyncState = 'loading' | 'synced' | 'unsynced' | 'syncing' | 'no-auth';
@@ -12,8 +12,13 @@ export function SyncButton() {
   const router = useRouter();
   const [state, setState] = useState<SyncState>('loading');
   const [lastSynced, setLastSynced] = useState<string | null>(null);
+  const syncingRef = useRef(false);
+  const checkingRef = useRef(false);
 
-  async function checkSync() {
+  const checkSync = useCallback(async () => {
+    if (syncingRef.current || checkingRef.current) return;
+    checkingRef.current = true;
+
     try {
       const r = await fetch('/api/drive/sync');
       if (r.status === 401) { setState('no-auth'); return; }
@@ -27,10 +32,15 @@ export function SyncButton() {
       }
     } catch {
       setState('unsynced');
+    } finally {
+      checkingRef.current = false;
     }
-  }
+  }, []);
 
-  async function pushSync(background = false) {
+  const pushSync = useCallback(async (background = false) => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+
     if (!background) {
       setState('syncing');
     }
@@ -42,20 +52,21 @@ export function SyncButton() {
       const data = await r.json();
       if (data.initialized || data.driveWins || data.seededFromLocal) {
         sessionStorage.setItem(PULLED_KEY, '1');
-        setLastSynced(new Date().toISOString());
+        setLastSynced(data.updatedAt ?? new Date().toISOString());
         setState('synced');
         if (data.replacedLocal || data.seededFromLocal) {
           router.refresh();
         }
-        await checkSync();
         return;
       }
-      setLastSynced(new Date().toISOString());
+      setLastSynced(data.updatedAt ?? new Date().toISOString());
       setState('synced');
     } catch {
       setState('unsynced');
+    } finally {
+      syncingRef.current = false;
     }
-  }
+  }, [router]);
 
   // On mount: pull Drive -> cookie only once per login session.
   useEffect(() => {
@@ -73,7 +84,7 @@ export function SyncButton() {
         router.refresh();
       })
       .catch(() => void checkSync());
-  }, [router]);
+  }, [checkSync, router]);
 
   useEffect(() => {
     const onChannelsChanged = (event: Event) => {
@@ -82,7 +93,7 @@ export function SyncButton() {
       setState('unsynced');
 
       if (detail?.autoSync) {
-        void pushSync();
+        void pushSync(true);
       } else {
         void checkSync();
       }
@@ -90,14 +101,28 @@ export function SyncButton() {
 
     window.addEventListener(CHANNELS_CHANGED_EVENT, onChannelsChanged);
     return () => window.removeEventListener(CHANNELS_CHANGED_EVENT, onChannelsChanged);
-  });
+  }, [checkSync, pushSync]);
 
-  // Poll every 30s
+  // Poll every 30s — keep polling in no-auth so token refresh recovers automatically
   useEffect(() => {
-    if (state === 'no-auth') return;
     const id = setInterval(() => void checkSync(), 30_000);
     return () => clearInterval(id);
-  }, [state]);
+  }, [checkSync]);
+
+  useEffect(() => {
+    const onResume = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (state === 'no-auth') sessionStorage.removeItem(PULLED_KEY);
+      void checkSync();
+    };
+
+    window.addEventListener('focus', onResume);
+    document.addEventListener('visibilitychange', onResume);
+    return () => {
+      window.removeEventListener('focus', onResume);
+      document.removeEventListener('visibilitychange', onResume);
+    };
+  }, [checkSync, state]);
 
   if (state === 'no-auth') return null;
 

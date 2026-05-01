@@ -50,7 +50,27 @@ export function VideoCard({
             {video.title}
           </h3>
           <p className="text-sm text-duo-mute mt-1 truncate">
-            {showChannel && <span className="font-semibold text-duo-ink">{video.channelTitle}</span>}
+            {showChannel && (
+              <span
+                role="link"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  window.open(`https://www.youtube.com/channel/${video.channelId}`, '_blank', 'noreferrer');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.open(`https://www.youtube.com/channel/${video.channelId}`, '_blank', 'noreferrer');
+                  }
+                }}
+                className="font-semibold text-duo-ink hover:underline cursor-pointer"
+              >
+                {video.channelTitle}
+              </span>
+            )}
             {showChannel && ' • '}
             <span>{timeAgo(video.publishedAt, now)}</span>
           </p>

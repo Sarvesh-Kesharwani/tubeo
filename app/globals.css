@@ -28,3 +28,13 @@
     @apply bg-white rounded-chonk border-2 border-duo-border shadow-card overflow-hidden;
   }
 }
+
+@media (max-width: 640px) {
+  .btn-duo {
+    @apply text-xs;
+  }
+
+  .chip {
+    @apply text-xs;
+  }
+}

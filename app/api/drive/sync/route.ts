@@ -10,6 +10,7 @@ import {
 import { getSession } from '@/lib/session';
 import type { ChannelPreferenceStore } from '@/lib/types';
 import { getEnvChannelIds } from '@/lib/whitelist';
+import { DEFAULT_VIEW_PREFERENCES, sameViewPreferences } from '@/lib/view-preferences';
 
 // GET - read Drive, return { driveIds, cookieIds, synced }
 export async function GET() {
@@ -18,7 +19,13 @@ export async function GET() {
     return Response.json({ error: 'Not signed in' }, { status: 401 });
   }
 
-  let cookieStore: ChannelPreferenceStore = { channels: [], spaces: [] };
+  let cookieStore: ChannelPreferenceStore = {
+    channels: [],
+    spaces: [],
+    view: DEFAULT_VIEW_PREFERENCES,
+    updatesChannelIds: [],
+    savedVideos: [],
+  };
   let driveData = null;
   let localMeta = { updatedAt: null as string | null, dirty: false };
   try {
@@ -43,12 +50,13 @@ export async function GET() {
   const syncedSpaces =
     cookieStore.spaces.length === driveSpaces.length &&
     cookieStore.spaces.every((space, index) => driveSpaces[index] === space);
+  const syncedView = sameViewPreferences(cookieStore.view, driveData?.view ?? cookieStore.view);
 
   return Response.json({
     driveIds: driveChannels.map((channel) => channel.id),
     cookieIds: cookieStore.channels.map((channel) => channel.id),
     initialized: await hasDriveSyncHydrated(),
-    synced: syncedChannels && syncedSpaces && !localMeta.dirty,
+    synced: syncedChannels && syncedSpaces && syncedView && !localMeta.dirty,
     updatedAt: driveData?.updatedAt ?? null,
   });
 }
@@ -65,6 +73,7 @@ export async function POST() {
   const envIds = getEnvChannelIds();
   const cookieOnly = cookieStore.channels.filter((channel) => !envIds.includes(channel.id));
   const localSpaces = cookieStore.spaces;
+  const localView = cookieStore.view;
 
   try {
     const driveData = await readDriveChannels(session.accessToken);
@@ -77,11 +86,15 @@ export async function POST() {
           driveOnly[index]?.id !== channel.id || driveOnly[index]?.space !== channel.space,
         ) ||
         localSpaces.length !== driveData.spaces.length ||
-        localSpaces.some((space, index) => driveData.spaces[index] !== space);
+        localSpaces.some((space, index) => driveData.spaces[index] !== space) ||
+        !sameViewPreferences(localView, driveData.view);
 
       await setCookieChannelStore({
         channels: driveOnly,
         spaces: driveData.spaces,
+        view: driveData.view,
+        updatesChannelIds: driveData.updatesChannelIds,
+        savedVideos: driveData.savedVideos,
       });
       await markCookieChannelStoreSynced(driveData.updatedAt);
       await markDriveSyncHydrated();
@@ -91,27 +104,33 @@ export async function POST() {
         initialized: true,
         driveWins: true,
         replacedLocal,
+        updatedAt: driveData.updatedAt,
         channelIds: driveData.channels.map((channel) => channel.id),
       });
     }
 
+    const syncedAt = new Date().toISOString();
     await writeDriveChannels(session.accessToken, {
       channels: cookieOnly,
       spaces: localSpaces,
+      view: localView,
+      updatesChannelIds: cookieStore.updatesChannelIds,
+      savedVideos: cookieStore.savedVideos,
       quota: driveData?.quota,
     });
-    await markCookieChannelStoreSynced();
+    await markCookieChannelStoreSynced(syncedAt);
     await markDriveSyncHydrated();
+
+    return Response.json({
+      ok: true,
+      initialized: true,
+      seededFromLocal: true,
+      updatedAt: syncedAt,
+      channelIds: cookieOnly.map((channel) => channel.id),
+    });
   } catch {
     return Response.json({ error: 'Failed to write Drive sync state' }, { status: 502 });
   }
-
-  return Response.json({
-    ok: true,
-    initialized: true,
-    seededFromLocal: true,
-    channelIds: cookieOnly.map((channel) => channel.id),
-  });
 }
 
 // PUT /api/drive/sync - pull Drive channels into cookie (called on login, Drive wins)
@@ -137,6 +156,9 @@ export async function PUT() {
   await setCookieChannelStore({
     channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
     spaces: driveData.spaces,
+    view: driveData.view,
+    updatesChannelIds: driveData.updatesChannelIds,
+    savedVideos: driveData.savedVideos,
   });
   await markCookieChannelStoreSynced(driveData.updatedAt);
   await markDriveSyncHydrated();

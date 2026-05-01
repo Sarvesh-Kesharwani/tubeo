@@ -23,16 +23,30 @@ export function ChannelRow({ data, now }: { data: ChannelWithVideos; now: number
       <section className="space-y-3">
         <header className="flex items-center gap-3">
           {channel.thumbnail && (
-            <Image
-              src={channel.thumbnail}
-              alt={channel.title}
-              width={48}
-              height={48}
-              className="rounded-full border-2 border-duo-border"
-            />
+            <a
+              href={`https://www.youtube.com/channel/${channel.id}`}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Open ${channel.title} on YouTube`}
+            >
+              <Image
+                src={channel.thumbnail}
+                alt={channel.title}
+                width={48}
+                height={48}
+                className="rounded-full border-2 border-duo-border"
+              />
+            </a>
           )}
           <div className="min-w-0">
-            <h2 className="font-bold text-lg text-duo-ink truncate">{channel.title}</h2>
+            <a
+              href={`https://www.youtube.com/channel/${channel.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="font-bold text-lg text-duo-ink truncate hover:underline block"
+            >
+              {channel.title}
+            </a>
             <p className="text-sm text-duo-mute">{summary}</p>
           </div>
         </header>
