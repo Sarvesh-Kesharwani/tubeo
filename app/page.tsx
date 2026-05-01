@@ -26,7 +26,7 @@ export default async function MixedPage({
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-3">
-        <h1 className="text-3xl font-extrabold text-duo-ink">Mixed feed</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">Mixed feed</h1>
         <Suspense fallback={null}>
           <TimeFilter active={range} />
         </Suspense>

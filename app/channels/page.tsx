@@ -29,7 +29,7 @@ export default async function ChannelsPage({
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-3">
-        <h1 className="text-3xl font-extrabold text-duo-ink">Channels</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">Channels</h1>
         <Suspense fallback={null}>
           <TimeFilter active={range} />
         </Suspense>

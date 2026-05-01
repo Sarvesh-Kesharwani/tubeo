@@ -81,7 +81,7 @@ export function SavedVideosClient({
       {savedVideos.length === 0 ? (
         <div className="card p-8 text-center font-bold text-duo-mute">No saved videos yet.</div>
       ) : (
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-start">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {savedVideos.map((saved) => {
             const video = videoById.get(saved.id);
             const kind = getSavedVideoKind(saved);
@@ -90,55 +90,61 @@ export function SavedVideosClient({
                 ? `https://www.instagram.com/${saved.url.includes('/reel/') ? 'reel' : 'p'}/${saved.id.slice(INSTAGRAM_SAVED_PREFIX.length)}/embed/`
                 : null;
             return (
-              <article key={saved.id} className="card overflow-hidden">
-                {kind === 'instagram' && igEmbedSrc ? (
-                  <div className="bg-black">
-                    <iframe
-                      src={igEmbedSrc}
-                      className="h-[480px] w-full border-0"
-                      loading="lazy"
-                      allowFullScreen
-                      scrolling="no"
-                      title="Instagram reel"
-                    />
-                    <div className="border-t-2 border-duo-border bg-duo-soft px-3 py-2 text-xs font-bold text-duo-mute">
-                      Instagram ·{' '}
-                      <a href={saved.url} target="_blank" rel="noreferrer" className="text-duo-green underline">
-                        Open
-                      </a>
+              <article key={saved.id} className="card flex h-full flex-col overflow-hidden">
+                <div className="flex flex-1 flex-col">
+                  {kind === 'instagram' && igEmbedSrc ? (
+                    <>
+                      <div className="aspect-[16/10] w-full bg-black">
+                        <iframe
+                          src={igEmbedSrc}
+                          className="h-full w-full border-0"
+                          loading="lazy"
+                          allowFullScreen
+                          scrolling="no"
+                          title="Instagram reel"
+                        />
+                      </div>
+                      <div className="border-t-2 border-duo-border bg-duo-soft px-2 py-1 text-[11px] font-bold text-duo-mute">
+                        Instagram ·{' '}
+                        <a href={saved.url} target="_blank" rel="noreferrer" className="text-duo-green underline">
+                          Open
+                        </a>
+                      </div>
+                    </>
+                  ) : kind === 'webpage' ? (
+                    <a
+                      href={saved.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex flex-1 flex-col gap-1 bg-duo-soft p-3 transition hover:bg-duo-green/10"
+                    >
+                      <span className="inline-flex w-fit items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-duo-blueDark border border-duo-border">
+                        <span aria-hidden>🔗</span> Webpage
+                      </span>
+                      <span className="text-sm font-extrabold text-duo-ink">
+                        {getHostname(saved.url)}
+                      </span>
+                      <span className="break-all text-xs font-bold text-duo-mute">
+                        {saved.url}
+                      </span>
+                    </a>
+                  ) : video ? (
+                    <div className="[&_.aspect-video]:aspect-[16/10]">
+                      <VideoCard video={video} now={now} onOpen={setActiveVideo} />
                     </div>
-                  </div>
-                ) : kind === 'webpage' ? (
-                  <a
-                    href={saved.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex flex-col gap-2 bg-duo-soft p-5 transition hover:bg-duo-green/10"
-                  >
-                    <span className="inline-flex w-fit items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-duo-blueDark border border-duo-border">
-                      <span aria-hidden>🔗</span> Webpage
-                    </span>
-                    <span className="text-sm font-extrabold text-duo-ink">
-                      {getHostname(saved.url)}
-                    </span>
-                    <span className="break-all text-xs font-bold text-duo-mute">
+                  ) : (
+                    <a href={saved.url} target="_blank" rel="noreferrer" className="block flex-1 bg-duo-soft p-3 text-sm font-bold">
                       {saved.url}
-                    </span>
-                  </a>
-                ) : video ? (
-                  <VideoCard video={video} now={now} onOpen={setActiveVideo} />
-                ) : (
-                  <a href={saved.url} target="_blank" rel="noreferrer" className="block bg-duo-soft p-5 font-bold">
-                    {saved.url}
-                  </a>
-                )}
-                <div className="space-y-2 border-t-2 border-duo-border p-3">
+                    </a>
+                  )}
+                </div>
+                <div className="mt-auto space-y-1 border-t-2 border-duo-border p-2">
                   <textarea
                     defaultValue={saved.note}
                     onBlur={(event) =>
                       mutate({ type: 'updateSavedVideo', id: saved.id, note: event.currentTarget.value })
                     }
-                    className="min-h-20 w-full rounded-2xl border-2 border-duo-border p-3 text-sm font-bold outline-none focus:border-duo-green"
+                    className="min-h-10 w-full rounded-xl border-2 border-duo-border p-2 text-xs font-bold outline-none focus:border-duo-green"
                     placeholder="Why did you save this?"
                   />
                   <div className="flex items-center justify-between gap-2">

@@ -25,7 +25,7 @@ export default async function VideosPage() {
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-2">
-        <h1 className="text-3xl font-extrabold text-duo-ink">Videos</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">Videos</h1>
       </section>
       <SavedVideosClient savedVideos={store.savedVideos} videos={videos} now={getRequestTime()} />
     </div>
