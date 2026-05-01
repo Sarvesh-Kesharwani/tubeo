@@ -39,6 +39,7 @@ async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
       channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
       spaces: driveData.spaces,
       view: driveData.view,
+      viewUpdatedAt: driveData.viewUpdatedAt,
       updatesChannelIds: driveData.updatesChannelIds,
       savedVideos: driveData.savedVideos,
     });
@@ -128,6 +129,27 @@ function parseVideoId(raw: string): string | null {
   } catch {
     return null;
   }
+}
+
+function parseWebpageUrl(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    if (!url.hostname.includes('.')) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function hashString(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h).toString(36) + s.length.toString(36);
 }
 
 function parseInstagramReelId(raw: string): string | null {
@@ -229,6 +251,7 @@ export async function POST(req: Request) {
         ),
         spaces: store.spaces.map((space) => (space === existingSpace ? renamedSpace : space)),
         view: store.view,
+        viewUpdatedAt: store.viewUpdatedAt,
         updatesChannelIds: store.updatesChannelIds,
         savedVideos: store.savedVideos,
       });
@@ -251,6 +274,7 @@ export async function POST(req: Request) {
         ),
         spaces: store.spaces.filter((space) => space !== targetSpace),
         view: store.view,
+        viewUpdatedAt: store.viewUpdatedAt,
         updatesChannelIds: store.updatesChannelIds,
         savedVideos: store.savedVideos,
       });
@@ -312,12 +336,19 @@ export async function POST(req: Request) {
 
       const ytId = parseVideoId(url);
       const igId = ytId ? null : parseInstagramReelId(url);
-      if (!ytId && !igId) return fail('Enter a valid YouTube or Instagram URL.');
+      const webpage = !ytId && !igId ? parseWebpageUrl(url) : null;
+      if (!ytId && !igId && !webpage) return fail('Enter a valid URL.');
 
-      const id = ytId ? ytId : `ig_${igId}`;
+      const id = ytId
+        ? ytId
+        : igId
+          ? `ig_${igId}`
+          : `wp_${hashString(webpage!)}`;
       const canonicalUrl = ytId
         ? `https://www.youtube.com/watch?v=${ytId}`
-        : `https://www.instagram.com/reel/${igId}/`;
+        : igId
+          ? `https://www.instagram.com/reel/${igId}/`
+          : webpage!;
 
       const store = await getCookieChannelStore();
       const existing = store.savedVideos.filter((video) => video.id !== id);

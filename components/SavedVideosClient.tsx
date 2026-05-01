@@ -6,6 +6,14 @@ import { VideoCard } from '@/components/VideoCard';
 import { VideoPlayerModal } from '@/components/VideoPlayerModal';
 import { INSTAGRAM_SAVED_PREFIX, getSavedVideoKind, type SavedVideo, type Video } from '@/lib/types';
 
+function getHostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
 const CHANNELS_CHANGED_EVENT = 'tubeo-channels-changed';
 
 export function SavedVideosClient({
@@ -54,7 +62,7 @@ export function SavedVideosClient({
           <input
             value={url}
             onChange={(event) => setUrl(event.target.value)}
-            placeholder="Paste YouTube or Instagram URL"
+            placeholder="Paste YouTube, Instagram, or webpage URL"
             className="min-w-0 rounded-chonk border-2 border-duo-border px-4 py-2 text-sm font-bold outline-none focus:border-duo-green"
             required
           />
@@ -76,13 +84,14 @@ export function SavedVideosClient({
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {savedVideos.map((saved) => {
             const video = videoById.get(saved.id);
-            const isInstagram = getSavedVideoKind(saved) === 'instagram';
-            const igEmbedSrc = isInstagram
-              ? `https://www.instagram.com/${saved.url.includes('/reel/') ? 'reel' : 'p'}/${saved.id.slice(INSTAGRAM_SAVED_PREFIX.length)}/embed/`
-              : null;
+            const kind = getSavedVideoKind(saved);
+            const igEmbedSrc =
+              kind === 'instagram'
+                ? `https://www.instagram.com/${saved.url.includes('/reel/') ? 'reel' : 'p'}/${saved.id.slice(INSTAGRAM_SAVED_PREFIX.length)}/embed/`
+                : null;
             return (
               <article key={saved.id} className="card overflow-hidden">
-                {isInstagram && igEmbedSrc ? (
+                {kind === 'instagram' && igEmbedSrc ? (
                   <div className="bg-black">
                     <iframe
                       src={igEmbedSrc}
@@ -99,6 +108,23 @@ export function SavedVideosClient({
                       </a>
                     </div>
                   </div>
+                ) : kind === 'webpage' ? (
+                  <a
+                    href={saved.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-col gap-2 bg-duo-soft p-5 transition hover:bg-duo-green/10"
+                  >
+                    <span className="inline-flex w-fit items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-duo-blueDark border border-duo-border">
+                      <span aria-hidden>🔗</span> Webpage
+                    </span>
+                    <span className="text-sm font-extrabold text-duo-ink">
+                      {getHostname(saved.url)}
+                    </span>
+                    <span className="break-all text-xs font-bold text-duo-mute">
+                      {saved.url}
+                    </span>
+                  </a>
                 ) : video ? (
                   <VideoCard video={video} now={now} onOpen={setActiveVideo} />
                 ) : (

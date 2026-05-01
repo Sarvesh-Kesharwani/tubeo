@@ -32,7 +32,7 @@ export interface ViewPreferences {
   updates: MixedFeedViewPreferences;
 }
 
-export type SavedVideoKind = 'youtube' | 'instagram';
+export type SavedVideoKind = 'youtube' | 'instagram' | 'webpage';
 
 export interface SavedVideo {
   id: string;
@@ -42,15 +42,19 @@ export interface SavedVideo {
 }
 
 export const INSTAGRAM_SAVED_PREFIX = 'ig_';
+export const WEBPAGE_SAVED_PREFIX = 'wp_';
 
 export function getSavedVideoKind(saved: { id: string }): SavedVideoKind {
-  return saved.id.startsWith(INSTAGRAM_SAVED_PREFIX) ? 'instagram' : 'youtube';
+  if (saved.id.startsWith(INSTAGRAM_SAVED_PREFIX)) return 'instagram';
+  if (saved.id.startsWith(WEBPAGE_SAVED_PREFIX)) return 'webpage';
+  return 'youtube';
 }
 
 export interface ChannelPreferenceStore {
   channels: ChannelPreference[];
   spaces: string[];
   view: ViewPreferences;
+  viewUpdatedAt: string;
   updatesChannelIds: string[];
   savedVideos: SavedVideo[];
 }
