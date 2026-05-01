@@ -253,7 +253,7 @@ export function FeatureRequestMenu() {
         <div
           role="dialog"
           aria-label="Feature and bug requests"
-          className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-[min(26rem,calc(100vw-1rem))] overflow-hidden rounded-chonk border-2 border-duo-border bg-white shadow-duo"
+          className="fixed left-2 right-2 top-[3.75rem] sm:absolute sm:inset-x-auto sm:left-auto sm:right-0 sm:top-[calc(100%+0.75rem)] z-30 w-auto sm:w-[26rem] sm:max-w-[calc(100vw-1rem)] overflow-hidden rounded-chonk border-2 border-duo-border bg-white shadow-duo"
         >
           <div className="border-b-2 border-duo-border bg-duo-soft p-3 space-y-2">
             <form onSubmit={addRequest} className="flex gap-2">
