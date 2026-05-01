@@ -81,7 +81,7 @@ export function SavedVideosClient({
       {savedVideos.length === 0 ? (
         <div className="card p-8 text-center font-bold text-duo-mute">No saved videos yet.</div>
       ) : (
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-start">
           {savedVideos.map((saved) => {
             const video = videoById.get(saved.id);
             const kind = getSavedVideoKind(saved);
