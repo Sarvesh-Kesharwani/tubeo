@@ -3,6 +3,7 @@ import { SavedVideosClient } from '@/components/SavedVideosClient';
 import { getCookieChannelStore } from '@/lib/channels-cookie';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
+import { getSavedVideoKind } from '@/lib/types';
 import { getVideosByIds } from '@/lib/youtube';
 
 export default async function VideosPage() {
@@ -18,7 +19,8 @@ export default async function VideosPage() {
   }
 
   const store = await getCookieChannelStore();
-  const videos = await getVideosByIds(store.savedVideos.map((video) => video.id));
+  const ytIds = store.savedVideos.filter((video) => getSavedVideoKind(video) === 'youtube').map((video) => video.id);
+  const videos = await getVideosByIds(ytIds);
 
   return (
     <div className="space-y-6">

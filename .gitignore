@@ -9,3 +9,9 @@ out
 *.log
 
 .vercel
+
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+.history/
+.lh/
+tsconfig.tsbuildinfo

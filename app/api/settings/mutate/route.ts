@@ -98,14 +98,48 @@ function fail(message: string, status = 400) {
   return Response.json({ ok: false, error: message }, { status });
 }
 
+const YOUTUBE_ID_RE = /^[\w-]{11}$/;
+
 function parseVideoId(raw: string): string | null {
   const value = raw.trim();
-  if (/^[\w-]{11}$/.test(value)) return value;
+  if (YOUTUBE_ID_RE.test(value)) return value;
 
   try {
     const url = new URL(value.startsWith('http') ? value : `https://${value}`);
-    if (url.hostname.includes('youtu.be')) return url.pathname.split('/').filter(Boolean)[0] ?? null;
-    return url.searchParams.get('v') ?? url.pathname.split('/').filter(Boolean).at(-1) ?? null;
+    if (!url.hostname.includes('youtu')) return null;
+
+    if (url.hostname.includes('youtu.be')) {
+      const candidate = url.pathname.split('/').filter(Boolean)[0];
+      return candidate && YOUTUBE_ID_RE.test(candidate) ? candidate : null;
+    }
+
+    const v = url.searchParams.get('v');
+    if (v && YOUTUBE_ID_RE.test(v)) return v;
+
+    const segs = url.pathname.split('/').filter(Boolean);
+    const keyed = ['shorts', 'embed', 'live', 'v'];
+    const idx = segs.findIndex((s) => keyed.includes(s));
+    if (idx !== -1) {
+      const candidate = segs[idx + 1];
+      if (candidate && YOUTUBE_ID_RE.test(candidate)) return candidate;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseInstagramReelId(raw: string): string | null {
+  const value = raw.trim();
+  try {
+    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
+    if (!url.hostname.includes('instagram.com')) return null;
+    const segments = url.pathname.split('/').filter(Boolean);
+    const idx = segments.findIndex((s) => s === 'reel' || s === 'reels' || s === 'p' || s === 'tv');
+    if (idx === -1) return null;
+    const id = segments[idx + 1];
+    return id && /^[\w-]+$/.test(id) ? id : null;
   } catch {
     return null;
   }
@@ -275,14 +309,21 @@ export async function POST(req: Request) {
     if (type === 'addSavedVideo') {
       const url = String(body.url ?? '').trim();
       const note = String(body.note ?? '').trim();
-      const id = parseVideoId(url);
-      if (!id) return fail('Enter a valid YouTube video URL.');
+
+      const ytId = parseVideoId(url);
+      const igId = ytId ? null : parseInstagramReelId(url);
+      if (!ytId && !igId) return fail('Enter a valid YouTube or Instagram URL.');
+
+      const id = ytId ? ytId : `ig_${igId}`;
+      const canonicalUrl = ytId
+        ? `https://www.youtube.com/watch?v=${ytId}`
+        : `https://www.instagram.com/reel/${igId}/`;
 
       const store = await getCookieChannelStore();
       const existing = store.savedVideos.filter((video) => video.id !== id);
       await setCookieChannelStore({
         ...store,
-        savedVideos: [{ id, url: `https://www.youtube.com/watch?v=${id}`, note, addedAt: new Date().toISOString() }, ...existing],
+        savedVideos: [{ id, url: canonicalUrl, note, addedAt: new Date().toISOString() }, ...existing],
       });
       await markCookieChannelStoreDirty();
       revalidatePath('/videos');

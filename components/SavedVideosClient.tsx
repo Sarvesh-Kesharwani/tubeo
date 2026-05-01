@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { VideoCard } from '@/components/VideoCard';
 import { VideoPlayerModal } from '@/components/VideoPlayerModal';
-import type { SavedVideo, Video } from '@/lib/types';
+import { INSTAGRAM_SAVED_PREFIX, getSavedVideoKind, type SavedVideo, type Video } from '@/lib/types';
 
 const CHANNELS_CHANGED_EVENT = 'tubeo-channels-changed';
 
@@ -54,7 +54,7 @@ export function SavedVideosClient({
           <input
             value={url}
             onChange={(event) => setUrl(event.target.value)}
-            placeholder="Paste YouTube video URL"
+            placeholder="Paste YouTube or Instagram URL"
             className="min-w-0 rounded-chonk border-2 border-duo-border px-4 py-2 text-sm font-bold outline-none focus:border-duo-green"
             required
           />
@@ -76,9 +76,30 @@ export function SavedVideosClient({
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {savedVideos.map((saved) => {
             const video = videoById.get(saved.id);
+            const isInstagram = getSavedVideoKind(saved) === 'instagram';
+            const igEmbedSrc = isInstagram
+              ? `https://www.instagram.com/${saved.url.includes('/reel/') ? 'reel' : 'p'}/${saved.id.slice(INSTAGRAM_SAVED_PREFIX.length)}/embed/`
+              : null;
             return (
               <article key={saved.id} className="card overflow-hidden">
-                {video ? (
+                {isInstagram && igEmbedSrc ? (
+                  <div className="bg-black">
+                    <iframe
+                      src={igEmbedSrc}
+                      className="h-[480px] w-full border-0"
+                      loading="lazy"
+                      allowFullScreen
+                      scrolling="no"
+                      title="Instagram reel"
+                    />
+                    <div className="border-t-2 border-duo-border bg-duo-soft px-3 py-2 text-xs font-bold text-duo-mute">
+                      Instagram ·{' '}
+                      <a href={saved.url} target="_blank" rel="noreferrer" className="text-duo-green underline">
+                        Open
+                      </a>
+                    </div>
+                  </div>
+                ) : video ? (
                   <VideoCard video={video} now={now} onOpen={setActiveVideo} />
                 ) : (
                   <a href={saved.url} target="_blank" rel="noreferrer" className="block bg-duo-soft p-5 font-bold">

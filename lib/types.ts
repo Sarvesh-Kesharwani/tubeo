@@ -32,11 +32,19 @@ export interface ViewPreferences {
   updates: MixedFeedViewPreferences;
 }
 
+export type SavedVideoKind = 'youtube' | 'instagram';
+
 export interface SavedVideo {
   id: string;
   url: string;
   note: string;
   addedAt: string;
+}
+
+export const INSTAGRAM_SAVED_PREFIX = 'ig_';
+
+export function getSavedVideoKind(saved: { id: string }): SavedVideoKind {
+  return saved.id.startsWith(INSTAGRAM_SAVED_PREFIX) ? 'instagram' : 'youtube';
 }
 
 export interface ChannelPreferenceStore {
