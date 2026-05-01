@@ -31,10 +31,10 @@
 
 @media (max-width: 640px) {
   .btn-duo {
-    @apply text-xs;
+    @apply text-[13px] px-3 py-2;
   }
 
   .chip {
-    @apply text-xs;
+    @apply text-[13px] px-2.5 py-1.5;
   }
 }
