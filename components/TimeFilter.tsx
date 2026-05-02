@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { saveState, syncWithDrive } from '@/lib/filter-persistence';
 import { TIME_RANGES } from '@/lib/time';
-import type { TimeRange } from '@/lib/types';
+import type { MediaFilter, TimeRange } from '@/lib/types';
 
 export function TimeFilter({ active }: { active: TimeRange }) {
   const pathname = usePathname();
@@ -17,9 +18,17 @@ export function TimeFilter({ active }: { active: TimeRange }) {
 
   function persistRange(range: TimeRange) {
     const page = pathname === '/channels' ? 'channels' : pathname === '/updates' ? 'updates' : 'home';
-    const media = sp.get('media') ?? 'all';
+    const media = (sp.get('media') ?? 'all') as MediaFilter;
     const space = sp.get('space') ?? undefined;
+    const filters =
+      page === 'channels'
+        ? { channels: { range, media, space: space ?? 'all' } }
+        : page === 'updates'
+        ? { updates: { range, media } }
+        : { home: { range, media } };
 
+    saveState(filters);
+    void syncWithDrive();
     void fetch('/api/view-preferences', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -41,6 +41,7 @@ async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
       channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
       spaces: driveData.spaces,
       view: driveData.view,
+      viewUpdatedAt: driveData.viewUpdatedAt,
       updatesChannelIds: driveData.updatesChannelIds,
       savedVideos: driveData.savedVideos,
     });
@@ -199,6 +200,7 @@ export async function renameChannelSpaceAction(
     ),
     spaces: store.spaces.map((space) => (space === existingSpace ? renamedSpace : space)),
     view: store.view,
+    viewUpdatedAt: store.viewUpdatedAt,
     updatesChannelIds: store.updatesChannelIds,
     savedVideos: store.savedVideos,
   });
@@ -228,6 +230,7 @@ export async function deleteChannelSpaceAction(spaceToDelete: string): Promise<{
     ),
     spaces: store.spaces.filter((space) => space !== targetSpace),
     view: store.view,
+    viewUpdatedAt: store.viewUpdatedAt,
     updatesChannelIds: store.updatesChannelIds,
     savedVideos: store.savedVideos,
   });

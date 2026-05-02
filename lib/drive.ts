@@ -18,12 +18,14 @@ const BACKUP_FOLDER_NAME = 'tubeo-backups';
 const SNAPSHOT_FILE_PREFIX = 'tubeo-snapshot-';
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const SPACE = 'appDataFolder';
+const EPOCH = new Date(0).toISOString();
 
 export interface DriveChannelData {
   channelIds?: string[];
   channels?: ChannelPreference[];
   spaces?: string[];
   view?: Partial<ViewPreferences>;
+  viewUpdatedAt?: string;
   updatesChannelIds?: string[];
   savedVideos?: SavedVideo[];
   quota?: DailyQuotaUsage;
@@ -149,6 +151,7 @@ function normalizeDriveStore(data: DriveChannelData | null): DriveSyncState | nu
     channels: normalizedChannels,
     spaces,
     view: normalizeViewPreferences(data.view),
+    viewUpdatedAt: data.viewUpdatedAt ?? data.updatedAt ?? EPOCH,
     updatesChannelIds: normalizeUpdatesChannelIds(data.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
     savedVideos: normalizeSavedVideos(data.savedVideos),
     quota: normalizeQuotaUsage(data.quota),
@@ -366,12 +369,14 @@ export async function writeDriveChannels(accessToken: string, store: DriveWriteS
     ...normalizedChannels.map((channel) => channel.space),
   ]);
   const normalizedView = normalizeViewPreferences(store.view ?? DEFAULT_VIEW_PREFERENCES);
+  const viewUpdatedAt = store.viewUpdatedAt || new Date().toISOString();
   const normalizedQuota = normalizeQuotaUsage(store.quota);
   const body: DriveChannelData = {
     channels: normalizedChannels,
     channelIds: normalizedChannels.map((channel) => channel.id),
     spaces: normalizedSpaces,
     view: normalizedView,
+    viewUpdatedAt,
     updatesChannelIds: normalizeUpdatesChannelIds(store.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
     savedVideos: normalizeSavedVideos(store.savedVideos),
     quota: normalizedQuota,
@@ -401,6 +406,7 @@ export async function recordDriveQuotaUsage(
     channels: [],
     spaces: [DEFAULT_CHANNEL_SPACE],
     view: DEFAULT_VIEW_PREFERENCES,
+    viewUpdatedAt: EPOCH,
     updatesChannelIds: [],
     savedVideos: [],
   },
@@ -412,6 +418,7 @@ export async function recordDriveQuotaUsage(
         channels: existing.channels,
         spaces: existing.spaces,
         view: existing.view,
+        viewUpdatedAt: existing.viewUpdatedAt,
         updatesChannelIds: existing.updatesChannelIds,
         savedVideos: existing.savedVideos,
       }
@@ -427,6 +434,7 @@ export async function recordDriveQuotaUsage(
     channels: baseStore.channels,
     spaces: baseStore.spaces,
     view: baseStore.view,
+    viewUpdatedAt: baseStore.viewUpdatedAt,
     updatesChannelIds: baseStore.updatesChannelIds,
     savedVideos: baseStore.savedVideos,
     quota: nextQuota,

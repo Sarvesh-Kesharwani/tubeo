@@ -56,7 +56,8 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, changed: false });
   }
 
-  await setCookieViewPreferences(next);
-  await markCookieChannelStoreDirty();
-  return Response.json({ ok: true, changed: true });
+  const updatedAt = new Date().toISOString();
+  await setCookieViewPreferences(next, updatedAt);
+  await markCookieChannelStoreDirty(updatedAt);
+  return Response.json({ ok: true, changed: true, filters: next, updatedAt });
 }

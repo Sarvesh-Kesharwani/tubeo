@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { saveState, syncWithDrive } from '@/lib/filter-persistence';
 import { MEDIA_FILTERS } from '@/lib/media';
-import type { MediaFilter } from '@/lib/types';
+import type { MediaFilter, TimeRange } from '@/lib/types';
 
 export function MediaTypeFilter({ active }: { active: MediaFilter }) {
   const pathname = usePathname();
@@ -20,6 +21,21 @@ export function MediaTypeFilter({ active }: { active: MediaFilter }) {
     return query ? `${pathname}?${query}` : pathname;
   }
 
+  function persistMedia(media: MediaFilter) {
+    const page = pathname === '/channels' ? 'channels' : pathname === '/updates' ? 'updates' : 'home';
+    const range = (sp.get('range') ?? '7d') as TimeRange;
+    const space = sp.get('space') ?? undefined;
+    const filters =
+      page === 'channels'
+        ? { channels: { range, media, space: space ?? 'all' } }
+        : page === 'updates'
+        ? { updates: { range, media } }
+        : { home: { range, media } };
+
+    saveState(filters);
+    void syncWithDrive();
+  }
+
   return (
     <div className="flex flex-wrap gap-2">
       {MEDIA_FILTERS.map((filter) => {
@@ -28,6 +44,7 @@ export function MediaTypeFilter({ active }: { active: MediaFilter }) {
           <Link
             key={filter.value}
             href={hrefFor(filter.value)}
+            onClick={() => persistMedia(filter.value)}
             className={`chip ${isActive ? 'chip-active' : ''}`}
             scroll={false}
           >
