@@ -23,6 +23,7 @@ export async function GET() {
     channels: [],
     spaces: [],
     view: DEFAULT_VIEW_PREFERENCES,
+    viewUpdatedAt: new Date(0).toISOString(),
     updatesChannelIds: [],
     savedVideos: [],
   };
@@ -93,6 +94,7 @@ export async function POST() {
         channels: driveOnly,
         spaces: driveData.spaces,
         view: driveData.view,
+        viewUpdatedAt: driveData.viewUpdatedAt,
         updatesChannelIds: driveData.updatesChannelIds,
         savedVideos: driveData.savedVideos,
       });
@@ -114,6 +116,7 @@ export async function POST() {
       channels: cookieOnly,
       spaces: localSpaces,
       view: localView,
+      viewUpdatedAt: cookieStore.viewUpdatedAt,
       updatesChannelIds: cookieStore.updatesChannelIds,
       savedVideos: cookieStore.savedVideos,
       quota: driveData?.quota,
@@ -157,6 +160,7 @@ export async function PUT() {
     channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
     spaces: driveData.spaces,
     view: driveData.view,
+    viewUpdatedAt: driveData.viewUpdatedAt,
     updatesChannelIds: driveData.updatesChannelIds,
     savedVideos: driveData.savedVideos,
   });

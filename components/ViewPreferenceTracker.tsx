@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { saveState, syncWithDrive } from '@/lib/filter-persistence';
 import type { MediaFilter, TimeRange } from '@/lib/types';
 
 export function ViewPreferenceTracker({
@@ -16,6 +17,13 @@ export function ViewPreferenceTracker({
 }) {
   useEffect(() => {
     const controller = new AbortController();
+    const filters =
+      page === 'channels'
+        ? { channels: { range, media, space: space ?? 'all' } }
+        : page === 'updates'
+        ? { updates: { range, media } }
+        : { home: { range, media } };
+    saveState(filters);
 
     async function persist() {
       try {
@@ -28,6 +36,7 @@ export function ViewPreferenceTracker({
 
         if (!res.ok) return;
         const data = (await res.json()) as { changed?: boolean };
+        void syncWithDrive();
         if (!data.changed) return;
 
         window.dispatchEvent(new CustomEvent('tubeo-channels-changed', { detail: { autoSync: true } }));

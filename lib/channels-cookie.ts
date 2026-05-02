@@ -10,10 +10,19 @@ import {
 import { DEFAULT_VIEW_PREFERENCES, normalizeViewPreferences } from './view-preferences';
 
 const COOKIE = 'tubeo_channels';
+const COOKIE_CHUNK_COUNT = `${COOKIE}_chunks`;
+const COOKIE_CHUNK_PREFIX = `${COOKIE}_chunk_`;
 const DRIVE_READY_COOKIE = 'tubeo_drive_ready';
 const LOCAL_UPDATED_COOKIE = 'tubeo_channels_updated_at';
 const LOCAL_DIRTY_COOKIE = 'tubeo_channels_dirty';
 const MAX_AGE = 60 * 60 * 24 * 365; // 1 year
+const EPOCH = new Date(0).toISOString();
+const COOKIE_CHUNK_SIZE = 3000;
+const COOKIE_OPTIONS = {
+  maxAge: MAX_AGE,
+  path: '/',
+  sameSite: 'lax' as const,
+};
 
 function dedupeSpaces(spaces: string[]): string[] {
   const seen = new Set<string>();
@@ -75,10 +84,11 @@ function normalizeStore(store: ChannelPreferenceStore): ChannelPreferenceStore {
     ...channels.map((channel) => channel.space),
   ]);
   const view = normalizeViewPreferences(store.view);
+  const viewUpdatedAt = store.viewUpdatedAt || EPOCH;
   const updatesChannelIds = normalizeUpdatesChannelIds(store.updatesChannelIds, channels.map((channel) => channel.id));
   const savedVideos = normalizeSavedVideos(store.savedVideos);
 
-  return { channels, spaces, view, updatesChannelIds, savedVideos };
+  return { channels, spaces, view, viewUpdatedAt, updatesChannelIds, savedVideos };
 }
 
 function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
@@ -88,6 +98,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       channels: [],
       spaces: [DEFAULT_CHANNEL_SPACE],
       view: DEFAULT_VIEW_PREFERENCES,
+      viewUpdatedAt: EPOCH,
       updatesChannelIds: [],
       savedVideos: [],
     };
@@ -102,6 +113,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
         .map((id) => ({ id, space: DEFAULT_CHANNEL_SPACE })),
       spaces: [DEFAULT_CHANNEL_SPACE],
       view: DEFAULT_VIEW_PREFERENCES,
+      viewUpdatedAt: EPOCH,
       updatesChannelIds: [],
       savedVideos: [],
     });
@@ -113,6 +125,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
           channels?: Array<{ id?: string; space?: string }>;
           spaces?: string[];
           view?: Partial<ViewPreferences>;
+          viewUpdatedAt?: string;
           updatesChannelIds?: string[];
           savedVideos?: SavedVideo[];
         }
@@ -122,6 +135,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
     const channels = Array.isArray(parsed) ? parsed : parsed?.channels ?? [];
     const spaces = Array.isArray(parsed) ? [] : parsed?.spaces ?? [];
     const view = Array.isArray(parsed) ? DEFAULT_VIEW_PREFERENCES : parsed?.view;
+    const viewUpdatedAt = Array.isArray(parsed) ? EPOCH : parsed?.viewUpdatedAt ?? EPOCH;
 
     return normalizeStore({
       channels: channels
@@ -132,6 +146,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
         .filter((item) => item.id),
       spaces,
       view: normalizeViewPreferences(view),
+      viewUpdatedAt,
       updatesChannelIds: Array.isArray(parsed) ? [] : parsed?.updatesChannelIds ?? [],
       savedVideos: Array.isArray(parsed) ? [] : parsed?.savedVideos ?? [],
     });
@@ -140,15 +155,42 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       channels: [],
       spaces: [DEFAULT_CHANNEL_SPACE],
       view: DEFAULT_VIEW_PREFERENCES,
+      viewUpdatedAt: EPOCH,
       updatesChannelIds: [],
       savedVideos: [],
     };
   }
 }
 
+function readChunkedCookieStore(jar: Awaited<ReturnType<typeof cookies>>): string {
+  const count = Number(jar.get(COOKIE_CHUNK_COUNT)?.value ?? 0);
+  if (!Number.isFinite(count) || count <= 0) {
+    return jar.get(COOKIE)?.value ?? '';
+  }
+
+  const chunks: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const chunk = jar.get(`${COOKIE_CHUNK_PREFIX}${i}`)?.value;
+    if (typeof chunk !== 'string') return jar.get(COOKIE)?.value ?? '';
+    chunks.push(chunk);
+  }
+  return chunks.join('');
+}
+
+function clearCookieStoreChunks(jar: Awaited<ReturnType<typeof cookies>>): void {
+  jar.delete(COOKIE);
+  jar.delete(COOKIE_CHUNK_COUNT);
+
+  for (const cookie of jar.getAll()) {
+    if (cookie.name.startsWith(COOKIE_CHUNK_PREFIX)) {
+      jar.delete(cookie.name);
+    }
+  }
+}
+
 export async function getCookieChannelStore(): Promise<ChannelPreferenceStore> {
   const jar = await cookies();
-  const raw = jar.get(COOKIE)?.value ?? '';
+  const raw = readChunkedCookieStore(jar);
   return parseCookieChannelStore(raw);
 }
 
@@ -174,10 +216,13 @@ export async function setCookieChannelIds(ids: string[]): Promise<void> {
 
 export async function setCookieChannelStore(store: ChannelPreferenceStore): Promise<void> {
   const jar = await cookies();
-  jar.set(COOKIE, JSON.stringify(normalizeStore(store)), {
-    maxAge: MAX_AGE,
-    path: '/',
-    sameSite: 'lax',
+  const value = JSON.stringify(normalizeStore(store));
+  const chunks = value.match(new RegExp(`.{1,${COOKIE_CHUNK_SIZE}}`, 'g')) ?? [''];
+
+  clearCookieStoreChunks(jar);
+  jar.set(COOKIE_CHUNK_COUNT, String(chunks.length), COOKIE_OPTIONS);
+  chunks.forEach((chunk, index) => {
+    jar.set(`${COOKIE_CHUNK_PREFIX}${index}`, chunk, COOKIE_OPTIONS);
   });
 }
 
@@ -237,6 +282,7 @@ export async function setCookieChannelPreferences(channels: ChannelPreference[])
     channels,
     spaces: existing.spaces,
     view: existing.view,
+    viewUpdatedAt: existing.viewUpdatedAt,
     updatesChannelIds: existing.updatesChannelIds,
     savedVideos: existing.savedVideos,
   });
@@ -248,17 +294,19 @@ export async function setCookieChannelSpaces(spaces: string[]): Promise<void> {
     channels: existing.channels,
     spaces,
     view: existing.view,
+    viewUpdatedAt: existing.viewUpdatedAt,
     updatesChannelIds: existing.updatesChannelIds,
     savedVideos: existing.savedVideos,
   });
 }
 
-export async function setCookieViewPreferences(view: ViewPreferences): Promise<void> {
+export async function setCookieViewPreferences(view: ViewPreferences, viewUpdatedAt = new Date().toISOString()): Promise<void> {
   const existing = await getCookieChannelStore();
   await setCookieChannelStore({
     channels: existing.channels,
     spaces: existing.spaces,
     view,
+    viewUpdatedAt,
     updatesChannelIds: existing.updatesChannelIds,
     savedVideos: existing.savedVideos,
   });
@@ -266,7 +314,7 @@ export async function setCookieViewPreferences(view: ViewPreferences): Promise<v
 
 export async function clearCookieChannelIds(): Promise<void> {
   const jar = await cookies();
-  jar.delete(COOKIE);
+  clearCookieStoreChunks(jar);
   jar.delete(DRIVE_READY_COOKIE);
   jar.delete(LOCAL_UPDATED_COOKIE);
   jar.delete(LOCAL_DIRTY_COOKIE);

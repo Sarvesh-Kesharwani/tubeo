@@ -30,15 +30,23 @@ export function SavedVideosClient({
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
   const [url, setUrl] = useState('');
   const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const videoById = new Map(videos.map((video) => [video.id, video]));
 
   function mutate(body: Record<string, unknown>, clear = false) {
+    setError(null);
     startTransition(() => {
       void fetch('/api/settings/mutate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-      }).then(() => {
+      }).then(async (response) => {
+        const data = await response.json().catch(() => null) as { error?: string } | null;
+        if (!response.ok || data?.error) {
+          setError(data?.error ?? 'Failed to save this item.');
+          return;
+        }
+
         if (clear) {
           setUrl('');
           setNote('');
@@ -76,6 +84,7 @@ export function SavedVideosClient({
             {pending ? '...' : 'Add'}
           </button>
         </form>
+        {error && <p className="mt-3 text-sm font-bold text-red-500">{error}</p>}
       </section>
 
       {savedVideos.length === 0 ? (

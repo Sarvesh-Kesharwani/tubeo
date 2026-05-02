@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { syncWithDrive } from '@/lib/filter-persistence';
 
 type SyncState = 'loading' | 'synced' | 'unsynced' | 'syncing' | 'no-auth';
 
@@ -68,20 +69,21 @@ export function SyncButton() {
     }
   }, [router]);
 
-  // On mount: pull Drive -> cookie only once per login session.
+  // On mount: resolve local filters against Drive once per login session.
   useEffect(() => {
     if (sessionStorage.getItem(PULLED_KEY)) {
       void checkSync();
       return;
     }
 
-    fetch('/api/drive/sync', { method: 'PUT' })
-      .then((r) => {
-        if (r.status === 401) { setState('no-auth'); return; }
-        if (!r.ok) { setState('unsynced'); return; }
+    syncWithDrive()
+      .then((result) => {
         sessionStorage.setItem(PULLED_KEY, '1');
         void checkSync();
         router.refresh();
+        if (!result.synced) {
+          setState('unsynced');
+        }
       })
       .catch(() => void checkSync());
   }, [checkSync, router]);
