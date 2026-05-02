@@ -12,6 +12,25 @@ import type { ChannelPreferenceStore } from '@/lib/types';
 import { getEnvChannelIds } from '@/lib/whitelist';
 import { DEFAULT_VIEW_PREFERENCES, sameViewPreferences } from '@/lib/view-preferences';
 
+function sameStringList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, index) => b[index] === value);
+}
+
+function sameSavedVideos(a: ChannelPreferenceStore['savedVideos'], b: ChannelPreferenceStore['savedVideos']): boolean {
+  return (
+    a.length === b.length &&
+    a.every((video, index) => {
+      const other = b[index];
+      return (
+        other?.id === video.id &&
+        other.url === video.url &&
+        other.note === video.note &&
+        other.addedAt === video.addedAt
+      );
+    })
+  );
+}
+
 // GET - read Drive, return { driveIds, cookieIds, synced }
 export async function GET() {
   const session = await getSession();
@@ -52,12 +71,14 @@ export async function GET() {
     cookieStore.spaces.length === driveSpaces.length &&
     cookieStore.spaces.every((space, index) => driveSpaces[index] === space);
   const syncedView = sameViewPreferences(cookieStore.view, driveData?.view ?? cookieStore.view);
+  const syncedUpdates = sameStringList(cookieStore.updatesChannelIds, driveData?.updatesChannelIds ?? []);
+  const syncedSavedVideos = sameSavedVideos(cookieStore.savedVideos, driveData?.savedVideos ?? []);
 
   return Response.json({
     driveIds: driveChannels.map((channel) => channel.id),
     cookieIds: cookieStore.channels.map((channel) => channel.id),
     initialized: await hasDriveSyncHydrated(),
-    synced: syncedChannels && syncedSpaces && syncedView && !localMeta.dirty,
+    synced: syncedChannels && syncedSpaces && syncedView && syncedUpdates && syncedSavedVideos && !localMeta.dirty,
     updatedAt: driveData?.updatedAt ?? null,
   });
 }
@@ -88,7 +109,9 @@ export async function POST() {
         ) ||
         localSpaces.length !== driveData.spaces.length ||
         localSpaces.some((space, index) => driveData.spaces[index] !== space) ||
-        !sameViewPreferences(localView, driveData.view);
+        !sameViewPreferences(localView, driveData.view) ||
+        !sameStringList(cookieStore.updatesChannelIds, driveData.updatesChannelIds) ||
+        !sameSavedVideos(cookieStore.savedVideos, driveData.savedVideos);
 
       await setCookieChannelStore({
         channels: driveOnly,

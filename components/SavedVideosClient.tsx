@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { VideoCard } from '@/components/VideoCard';
 import { VideoPlayerModal } from '@/components/VideoPlayerModal';
@@ -16,6 +16,19 @@ function getHostname(url: string): string {
 
 const CHANNELS_CHANGED_EVENT = 'tubeo-channels-changed';
 
+function mergeSavedVideos(current: SavedVideo[], incoming: SavedVideo[]): SavedVideo[] {
+  const seen = new Set<string>();
+  const merged: SavedVideo[] = [];
+
+  for (const video of [...incoming, ...current]) {
+    if (!video.id || seen.has(video.id)) continue;
+    seen.add(video.id);
+    merged.push(video);
+  }
+
+  return merged;
+}
+
 export function SavedVideosClient({
   savedVideos,
   videos,
@@ -26,35 +39,62 @@ export function SavedVideosClient({
   now: number;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
+  const [savedVideoItems, setSavedVideoItems] = useState(savedVideos);
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
   const [url, setUrl] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const videoById = new Map(videos.map((video) => [video.id, video]));
 
-  function mutate(body: Record<string, unknown>, clear = false) {
+  useEffect(() => {
+    setSavedVideoItems((current) => mergeSavedVideos(current, savedVideos));
+  }, [savedVideos]);
+
+  async function mutate(body: Record<string, unknown>, clear = false) {
+    if (pending) return;
     setError(null);
-    startTransition(() => {
-      void fetch('/api/settings/mutate', {
+    setPending(true);
+
+    try {
+      const response = await fetch('/api/settings/mutate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-      }).then(async (response) => {
-        const data = await response.json().catch(() => null) as { error?: string } | null;
-        if (!response.ok || data?.error) {
-          setError(data?.error ?? 'Failed to save this item.');
-          return;
-        }
-
-        if (clear) {
-          setUrl('');
-          setNote('');
-        }
-        router.refresh();
-        window.dispatchEvent(new CustomEvent(CHANNELS_CHANGED_EVENT, { detail: { autoSync: true } }));
       });
-    });
+      const data = await response.json().catch(() => null) as {
+        error?: string;
+        savedVideo?: SavedVideo;
+        success?: string;
+        synced?: boolean;
+      } | null;
+      if (!response.ok || data?.error) {
+        setError(data?.error ?? 'Failed to save this item.');
+        return;
+      }
+
+      if (data?.savedVideo) {
+        setSavedVideoItems((current) => [data.savedVideo!, ...current.filter((video) => video.id !== data.savedVideo!.id)]);
+      } else if (typeof body.id === 'string' && body.type === 'removeSavedVideo') {
+        setSavedVideoItems((current) => current.filter((video) => video.id !== body.id));
+      } else if (typeof body.id === 'string' && body.type === 'updateSavedVideo') {
+        const nextNote = String(body.note ?? '');
+        setSavedVideoItems((current) =>
+          current.map((video) => (video.id === body.id ? { ...video, note: nextNote } : video)),
+        );
+      }
+
+      if (clear) {
+        setUrl('');
+        setNote('');
+      }
+      router.refresh();
+      window.dispatchEvent(new CustomEvent(CHANNELS_CHANGED_EVENT, { detail: { autoSync: !data?.synced } }));
+    } catch {
+      setError('Failed to save this item.');
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
@@ -64,7 +104,7 @@ export function SavedVideosClient({
           className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)_auto]"
           onSubmit={(event) => {
             event.preventDefault();
-            mutate({ type: 'addSavedVideo', url, note }, true);
+            void mutate({ type: 'addSavedVideo', url, note }, true);
           }}
         >
           <input
@@ -87,11 +127,11 @@ export function SavedVideosClient({
         {error && <p className="mt-3 text-sm font-bold text-red-500">{error}</p>}
       </section>
 
-      {savedVideos.length === 0 ? (
+      {savedVideoItems.length === 0 ? (
         <div className="card p-8 text-center font-bold text-duo-mute">No saved videos yet.</div>
       ) : (
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {savedVideos.map((saved) => {
+          {savedVideoItems.map((saved) => {
             const video = videoById.get(saved.id);
             const kind = getSavedVideoKind(saved);
             const igEmbedSrc =
@@ -151,7 +191,7 @@ export function SavedVideosClient({
                   <textarea
                     defaultValue={saved.note}
                     onBlur={(event) =>
-                      mutate({ type: 'updateSavedVideo', id: saved.id, note: event.currentTarget.value })
+                      void mutate({ type: 'updateSavedVideo', id: saved.id, note: event.currentTarget.value })
                     }
                     className="min-h-10 w-full rounded-xl border-2 border-duo-border p-2 text-xs font-bold outline-none focus:border-duo-green"
                     placeholder="Why did you save this?"
@@ -162,7 +202,7 @@ export function SavedVideosClient({
                     </time>
                     <button
                       type="button"
-                      onClick={() => mutate({ type: 'removeSavedVideo', id: saved.id })}
+                      onClick={() => void mutate({ type: 'removeSavedVideo', id: saved.id })}
                       className="chip border-red-200 text-red-500 hover:bg-red-50"
                     >
                       Remove
