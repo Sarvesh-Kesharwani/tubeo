@@ -1,6 +1,7 @@
 import { AddChannelForm } from '@/components/AddChannelForm';
 import { AddSpaceForm } from '@/components/AddSpaceForm';
 import { ChannelSettingsRow } from '@/components/ChannelSettingsRow';
+import { DriveRestoreCard } from '@/components/DriveRestoreCard';
 import { QuotaCard } from '@/components/QuotaCard';
 import { SpaceSettingsRow } from '@/components/SpaceSettingsRow';
 import { SpacesManager, type SpaceItem } from '@/components/SpacesManager';
@@ -74,6 +75,8 @@ export default async function SettingsPage() {
       </h1>
 
       {canViewQuota && quota && <QuotaCard quota={quota} />}
+
+      {session?.user && <DriveRestoreCard />}
 
       <section className="card p-5 space-y-4">
         <h2 className="font-extrabold text-duo-ink">Add a channel</h2>

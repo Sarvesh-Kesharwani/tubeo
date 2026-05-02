@@ -41,6 +41,14 @@ export interface DriveWriteState extends ChannelPreferenceStore {
   quota?: DailyQuotaUsage | null;
 }
 
+export interface DriveBackupSummary {
+  id: string;
+  name: string;
+  createdTime?: string;
+  date: string | null;
+  type: 'daily' | 'snapshot';
+}
+
 const DEFAULT_QUOTA_RESET_TIMEZONE = process.env.YOUTUBE_QUOTA_RESET_TIMEZONE?.trim() || 'Asia/Kolkata';
 
 function dedupeSpaces(spaces: string[]): string[] {
@@ -211,6 +219,22 @@ function snapshotFileName(now = new Date()): string {
   return `${SNAPSHOT_FILE_PREFIX}${now.toISOString().replace(/[:]/g, '-')}.json`;
 }
 
+function backupDateFromName(name: string | undefined): string | null {
+  if (!name) return null;
+  const daily = /^tubeo-channels-(\d{4}-\d{2}-\d{2})\.json$/.exec(name);
+  if (daily) return daily[1];
+  const snapshot = /^tubeo-snapshot-(\d{4}-\d{2}-\d{2})T/.exec(name);
+  return snapshot?.[1] ?? null;
+}
+
+function backupTypeFromName(name: string | undefined): DriveBackupSummary['type'] {
+  return name?.startsWith(SNAPSHOT_FILE_PREFIX) ? 'snapshot' : 'daily';
+}
+
+export function getPreviousBackupDate(now = new Date()): string {
+  return safeQuotaDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+}
+
 async function uploadJsonFile(
   accessToken: string,
   name: string,
@@ -336,6 +360,72 @@ async function readLatestBackupData(accessToken: string): Promise<DriveSyncState
 
   const data = await readFileJson<DriveChannelData>(accessToken, latest.id);
   return normalizeDriveStore(data);
+}
+
+export async function listDriveBackups(accessToken: string): Promise<DriveBackupSummary[]> {
+  const backupFolderId = await findFile(accessToken, BACKUP_FOLDER_NAME, SPACE, FOLDER_MIME_TYPE);
+  if (!backupFolderId) return [];
+
+  const files = await listFiles(
+    accessToken,
+    [
+      `'${escapeDriveQueryValue(backupFolderId)}' in parents`,
+      `name contains '${escapeDriveQueryValue('tubeo-')}'`,
+    ].join(' and '),
+    'files(id,name,createdTime)',
+  );
+
+  return files
+    .map((file) => ({
+      id: file.id,
+      name: file.name ?? '',
+      createdTime: file.createdTime,
+      date: backupDateFromName(file.name),
+      type: backupTypeFromName(file.name),
+    }))
+    .filter((file) => file.id && file.name)
+    .sort((a, b) => {
+      const dateDelta = Date.parse(b.createdTime ?? '') - Date.parse(a.createdTime ?? '');
+      if (dateDelta !== 0 && Number.isFinite(dateDelta)) return dateDelta;
+      return b.name.localeCompare(a.name);
+    });
+}
+
+export async function readDriveBackupForDate(
+  accessToken: string,
+  date = getPreviousBackupDate(),
+): Promise<(DriveSyncState & { backup: DriveBackupSummary }) | null> {
+  const backups = await listDriveBackups(accessToken);
+  const candidates = backups.filter((backup) => backup.date === date);
+  const selected =
+    candidates.find((backup) => backup.name === `tubeo-channels-${date}.json`) ??
+    candidates[0] ??
+    null;
+  if (!selected) return null;
+
+  const data = await readFileJson<DriveChannelData>(accessToken, selected.id);
+  const normalized = normalizeDriveStore(data);
+  return normalized ? { ...normalized, backup: selected } : null;
+}
+
+export async function restoreDriveBackup(
+  accessToken: string,
+  date = getPreviousBackupDate(),
+): Promise<(DriveSyncState & { backup: DriveBackupSummary }) | null> {
+  const backup = await readDriveBackupForDate(accessToken, date);
+  if (!backup) return null;
+
+  await writeDriveChannels(accessToken, {
+    channels: backup.channels,
+    spaces: backup.spaces,
+    view: backup.view,
+    viewUpdatedAt: backup.viewUpdatedAt,
+    updatesChannelIds: backup.updatesChannelIds,
+    savedVideos: backup.savedVideos,
+    quota: backup.quota,
+  });
+
+  return backup;
 }
 
 export async function readDriveChannels(
