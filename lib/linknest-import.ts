@@ -23,6 +23,10 @@ export interface LinkNestImportResult {
   videos: SavedVideo[];
 }
 
+export interface LinkNestDeleteResult {
+  deleted: number;
+}
+
 function getLinkNestConfig() {
   const url = process.env.LINKNEST_SUPABASE_URL?.trim();
   const key = process.env.LINKNEST_SUPABASE_KEY?.trim();
@@ -97,4 +101,36 @@ export function importLinkNestRows(current: SavedVideo[], rows: LinkNestRow[]): 
     total: rows.length,
     videos: [...imported, ...current],
   };
+}
+
+export async function deleteLinkNestYouTubeLink(rawUrl: string): Promise<LinkNestDeleteResult> {
+  const { url, key, table } = getLinkNestConfig();
+  const videoId = parseYouTubeVideoId(rawUrl);
+  if (!videoId) return { deleted: 0 };
+
+  const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const shortUrl = `https://youtu.be/${videoId}`;
+  const qs = new URLSearchParams({
+    platform: 'eq.youtube',
+    or: `(canonical_url.eq.${canonicalUrl},original_url.eq.${canonicalUrl},canonical_url.eq.${shortUrl},original_url.eq.${shortUrl})`,
+  });
+
+  const res = await fetch(`${url}/rest/v1/${encodeURIComponent(table)}?${qs}`, {
+    method: 'DELETE',
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Accept: 'application/json',
+      Prefer: 'return=representation',
+    },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`LinkNest delete failed: ${res.status} ${detail.slice(0, 200)}`);
+  }
+
+  const deletedRows = (await res.json().catch(() => [])) as unknown[];
+  return { deleted: Array.isArray(deletedRows) ? deletedRows.length : 0 };
 }

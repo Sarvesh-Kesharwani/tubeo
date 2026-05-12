@@ -89,6 +89,7 @@ export function WatchListClient({
   const [pending, setPending] = useState(false);
   const [categorizePending, setCategorizePending] = useState(false);
   const [linkNestPending, setLinkNestPending] = useState(false);
+  const [linkNestDeleteId, setLinkNestDeleteId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -360,6 +361,38 @@ export function WatchListClient({
     }
   }
 
+  async function handleRemoveLinkNest(item: SavedVideo) {
+    if (linkNestDeleteId) return;
+    setError(null);
+    setMessage(null);
+    setLinkNestDeleteId(item.id);
+    try {
+      const response = await fetch('/api/saved-videos/linknest', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: item.url }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        deleted?: number;
+        error?: string;
+      } | null;
+      if (!response.ok || !data?.ok) {
+        setError(data?.error ?? 'Failed to remove from LinkNest.');
+        return;
+      }
+      setMessage(
+        data.deleted && data.deleted > 0
+          ? `Removed ${data.deleted} LinkNest row${data.deleted === 1 ? '' : 's'}.`
+          : 'No matching LinkNest row found.',
+      );
+    } catch {
+      setError('Failed to remove from LinkNest.');
+    } finally {
+      setLinkNestDeleteId(null);
+    }
+  }
+
   function handleOpenFeed() {
     setActiveFeedId(sorted[0]?.id ?? null);
     setFeedOpen(true);
@@ -484,6 +517,14 @@ export function WatchListClient({
                 className="chip text-xs"
               >
                 {busyId === item.id ? '...' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRemoveLinkNest(item)}
+                disabled={linkNestDeleteId === item.id}
+                className="chip text-xs"
+              >
+                {linkNestDeleteId === item.id ? '...' : 'Remove LinkNest'}
               </button>
               <button
                 type="button"
