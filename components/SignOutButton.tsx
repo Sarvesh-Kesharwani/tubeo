@@ -1,14 +1,20 @@
 'use client';
 
-export function SignOutButton({ action }: { action: () => Promise<void> }) {
+export function SignOutButton({
+  onSignOut,
+  pending,
+}: {
+  onSignOut: () => void;
+  pending?: boolean;
+}) {
   return (
     <button
-      type="submit"
-      onClick={() => sessionStorage.removeItem('tubeo_drive_pulled')}
-      formAction={action}
+      type="button"
+      onClick={onSignOut}
+      disabled={pending}
       className="flex items-center gap-1"
     >
-      <span className="text-duo-mute text-xs">Sign out</span>
+      <span className="text-duo-mute text-xs">{pending ? 'Signing out...' : 'Sign out'}</span>
     </button>
   );
 }

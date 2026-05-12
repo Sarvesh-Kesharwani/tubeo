@@ -2,13 +2,19 @@
 
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { saveState, syncWithDrive } from '@/lib/filter-persistence';
+import { useEffect, useState } from 'react';
+import { saveState } from '@/lib/filter-persistence';
 import { TIME_RANGES } from '@/lib/time';
 import type { MediaFilter, TimeRange } from '@/lib/types';
 
 export function TimeFilter({ active }: { active: TimeRange }) {
   const pathname = usePathname();
   const sp = useSearchParams();
+  const [optimisticRange, setOptimisticRange] = useState(active);
+
+  useEffect(() => {
+    setOptimisticRange(active);
+  }, [active]);
 
   function hrefFor(r: TimeRange): string {
     const params = new URLSearchParams(sp.toString());
@@ -28,27 +34,21 @@ export function TimeFilter({ active }: { active: TimeRange }) {
         : { home: { range, media } };
 
     saveState(filters);
-    void syncWithDrive();
-    void fetch('/api/view-preferences', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ page, range, media, space }),
-    }).then((response) => {
-      if (response.ok) {
-        window.dispatchEvent(new CustomEvent('tubeo-channels-changed', { detail: { autoSync: true } }));
-      }
-    });
   }
 
   return (
     <div className="flex flex-wrap gap-2">
       {TIME_RANGES.map((r) => {
-        const isActive = r.value === active;
+        const isActive = r.value === optimisticRange;
         return (
           <Link
             key={r.value}
             href={hrefFor(r.value)}
-            onClick={() => persistRange(r.value)}
+            prefetch
+            onClick={() => {
+              setOptimisticRange(r.value);
+              persistRange(r.value);
+            }}
             className={`chip ${isActive ? 'chip-active' : ''}`}
             scroll={false}
           >
