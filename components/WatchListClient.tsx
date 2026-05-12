@@ -88,6 +88,7 @@ export function WatchListClient({
   const [note, setNote] = useState('');
   const [pending, setPending] = useState(false);
   const [categorizePending, setCategorizePending] = useState(false);
+  const [linkNestPending, setLinkNestPending] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -309,6 +310,41 @@ export function WatchListClient({
     }
   }
 
+  async function handleImportLinkNest() {
+    if (linkNestPending) return;
+    setError(null);
+    setMessage(null);
+    setLinkNestPending(true);
+    try {
+      const response = await fetch('/api/saved-videos/import-linknest', { method: 'POST' });
+      const data = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        imported?: number;
+        skipped?: number;
+        videos?: SavedVideo[];
+        error?: string;
+      } | null;
+      if (!response.ok || !data?.ok) {
+        setError(data?.error ?? 'Failed to import LinkNest videos.');
+        return;
+      }
+      if (data.videos) {
+        const nextVideos = data.videos.map((video) => ({
+          ...video,
+          category: normalizeSavedVideoCategory(video.category),
+        }));
+        setSaved(nextVideos);
+        setNoteDrafts(Object.fromEntries(nextVideos.map((video) => [video.id, video.note])));
+      }
+      setMessage(`Imported ${data.imported ?? 0} from LinkNest. Skipped ${data.skipped ?? 0} duplicate${data.skipped === 1 ? '' : 's'}.`);
+      router.refresh();
+    } catch {
+      setError('Failed to import LinkNest videos.');
+    } finally {
+      setLinkNestPending(false);
+    }
+  }
+
   async function handleRemove(id: string) {
     const previous = saved;
     setSaved((current) => current.filter((video) => video.id !== id));
@@ -475,6 +511,14 @@ export function WatchListClient({
               className="btn-duo-blue"
             >
               {categorizePending ? 'Categorizing...' : 'AI categorize'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleImportLinkNest()}
+              disabled={linkNestPending}
+              className="btn-duo-green"
+            >
+              {linkNestPending ? 'Fetching...' : 'Fetch LinkNest'}
             </button>
             <button
               type="button"
