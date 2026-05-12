@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { VideoCard } from '@/components/VideoCard';
 import { VideoPlayerModal } from '@/components/VideoPlayerModal';
 import type { Video } from '@/lib/types';
-import { INSTAGRAM_SAVED_PREFIX, getSavedVideoKind, type SavedVideo } from '@/lib/saved-videos';
+import { INSTAGRAM_SAVED_PREFIX, getSavedVideoKind, type SavedVideo } from '@/lib/saved-videos-shared';
 
 function getHostname(url: string): string {
   try {
