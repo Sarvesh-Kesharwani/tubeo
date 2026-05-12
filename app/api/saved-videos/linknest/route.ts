@@ -1,4 +1,4 @@
-import { deleteLinkNestYouTubeLink } from '@/lib/linknest-import';
+import { deleteLinkNestSavedLink } from '@/lib/linknest-import';
 
 export async function DELETE(req: Request) {
   let body: { url?: string };
@@ -14,7 +14,7 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    const result = await deleteLinkNestYouTubeLink(url);
+    const result = await deleteLinkNestSavedLink(url);
     return Response.json({ ok: true, deleted: result.deleted });
   } catch (error) {
     return Response.json(

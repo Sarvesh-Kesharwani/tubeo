@@ -1,5 +1,5 @@
 import { revalidatePath } from 'next/cache';
-import { fetchLinkNestYouTubeLinks, importLinkNestRows } from '@/lib/linknest-import';
+import { fetchLinkNestSavedLinks, importLinkNestRows } from '@/lib/linknest-import';
 import { getSession } from '@/lib/session';
 import {
   getCookieSavedVideos,
@@ -14,7 +14,7 @@ export async function POST() {
   try {
     const [current, rows] = await Promise.all([
       getCookieSavedVideos(),
-      fetchLinkNestYouTubeLinks(),
+      fetchLinkNestSavedLinks(),
     ]);
     const result = importLinkNestRows(current, rows);
 

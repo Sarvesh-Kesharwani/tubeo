@@ -1,5 +1,6 @@
 import {
   parseYouTubeVideoId,
+  resolveSavedVideoFromUrl,
   type SavedVideo,
 } from './saved-videos';
 import { UNCATEGORIZED_SAVED_CATEGORY } from './saved-videos-shared';
@@ -37,11 +38,10 @@ function getLinkNestConfig() {
   return { url: url.replace(/\/$/, ''), key, table };
 }
 
-export async function fetchLinkNestYouTubeLinks(): Promise<LinkNestRow[]> {
+export async function fetchLinkNestSavedLinks(): Promise<LinkNestRow[]> {
   const { url, key, table } = getLinkNestConfig();
   const qs = new URLSearchParams({
     select: 'id,platform,canonical_url,original_url,note,created_at',
-    platform: 'eq.youtube',
     note_status: 'in.(added,skipped,pending)',
     order: 'created_at.desc',
     limit: String(IMPORT_LIMIT),
@@ -72,23 +72,22 @@ export function importLinkNestRows(current: SavedVideo[], rows: LinkNestRow[]): 
 
   for (const row of rows) {
     const rawUrl = (row.canonical_url || row.original_url || '').trim();
-    const videoId = parseYouTubeVideoId(rawUrl);
-    if (!videoId) {
+    const resolved = resolveSavedVideoFromUrl(rawUrl);
+    if (!resolved) {
       skipped += 1;
       continue;
     }
 
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
-    if (existingIds.has(videoId) || existingUrls.has(url)) {
+    if (existingIds.has(resolved.id) || existingUrls.has(resolved.url)) {
       skipped += 1;
       continue;
     }
 
-    existingIds.add(videoId);
-    existingUrls.add(url);
+    existingIds.add(resolved.id);
+    existingUrls.add(resolved.url);
     imported.push({
-      id: videoId,
-      url,
+      id: resolved.id,
+      url: resolved.url,
       note: row.note?.trim() || 'Saved from LinkNest',
       category: UNCATEGORIZED_SAVED_CATEGORY,
       addedAt: row.created_at || new Date().toISOString(),
@@ -103,16 +102,33 @@ export function importLinkNestRows(current: SavedVideo[], rows: LinkNestRow[]): 
   };
 }
 
-export async function deleteLinkNestYouTubeLink(rawUrl: string): Promise<LinkNestDeleteResult> {
-  const { url, key, table } = getLinkNestConfig();
-  const videoId = parseYouTubeVideoId(rawUrl);
-  if (!videoId) return { deleted: 0 };
+function linkNestDeleteUrlCandidates(rawUrl: string): string[] {
+  const candidates = new Set<string>();
+  const trimmed = rawUrl.trim();
+  if (trimmed) candidates.add(trimmed);
 
-  const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const shortUrl = `https://youtu.be/${videoId}`;
+  const resolved = resolveSavedVideoFromUrl(trimmed);
+  if (resolved) candidates.add(resolved.url);
+
+  const videoId = parseYouTubeVideoId(trimmed);
+  if (videoId) {
+    candidates.add(`https://www.youtube.com/watch?v=${videoId}`);
+    candidates.add(`https://youtu.be/${videoId}`);
+  }
+
+  return [...candidates];
+}
+
+export async function deleteLinkNestSavedLink(rawUrl: string): Promise<LinkNestDeleteResult> {
+  const { url, key, table } = getLinkNestConfig();
+  const candidates = linkNestDeleteUrlCandidates(rawUrl);
+  if (candidates.length === 0) return { deleted: 0 };
+  const clauses = candidates.flatMap((candidate) => [
+    `canonical_url.eq.${candidate}`,
+    `original_url.eq.${candidate}`,
+  ]);
   const qs = new URLSearchParams({
-    platform: 'eq.youtube',
-    or: `(canonical_url.eq.${canonicalUrl},original_url.eq.${canonicalUrl},canonical_url.eq.${shortUrl},original_url.eq.${shortUrl})`,
+    or: `(${clauses.join(',')})`,
   });
 
   const res = await fetch(`${url}/rest/v1/${encodeURIComponent(table)}?${qs}`, {
