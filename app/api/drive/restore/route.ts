@@ -8,9 +8,25 @@ import {
   getPreviousBackupDate,
   listDriveBackups,
   restoreDriveBackup,
+  type DriveBackupSummary,
 } from '@/lib/drive';
 import { getSession } from '@/lib/session';
 import { getEnvChannelIds } from '@/lib/whitelist';
+
+function pickBestBackup(
+  backups: DriveBackupSummary[],
+  yesterday: string,
+): DriveBackupSummary | null {
+  const exact = backups.find((backup) => backup.date === yesterday);
+  if (exact) return exact;
+
+  const dated = backups
+    .filter((backup) => backup.date)
+    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+  if (dated[0]) return dated[0];
+
+  return backups[0] ?? null;
+}
 
 export async function GET() {
   const session = await getSession();
@@ -19,9 +35,15 @@ export async function GET() {
   }
 
   const backups = await listDriveBackups(session.accessToken);
+  const yesterday = getPreviousBackupDate();
+  const target = pickBestBackup(backups, yesterday);
+  const defaultDate = target?.date ?? yesterday;
+
   return Response.json({
     ok: true,
-    defaultDate: getPreviousBackupDate(),
+    defaultDate,
+    yesterday,
+    target,
     backups,
   });
 }
@@ -39,7 +61,13 @@ export async function POST(req: Request) {
     body = {};
   }
 
-  const date = body.date?.trim() || getPreviousBackupDate();
+  let date = body.date?.trim();
+  if (!date) {
+    const backups = await listDriveBackups(session.accessToken);
+    const fallback = pickBestBackup(backups, getPreviousBackupDate());
+    date = fallback?.date ?? getPreviousBackupDate();
+  }
+
   const restored = await restoreDriveBackup(session.accessToken, date);
   if (!restored) {
     return Response.json({ error: `No Tubeo backup found for ${date}.` }, { status: 404 });
