@@ -1,10 +1,14 @@
 import { EmptyState } from '@/components/EmptyState';
-import { SavedVideosClient } from '@/components/SavedVideosClient';
-import { getCookieChannelStore } from '@/lib/channels-cookie';
+import { WatchListClient } from '@/components/WatchListClient';
+import {
+  getCookieSavedVideos,
+  getSavedVideoKind,
+  hydrateSavedVideosFromDriveIfNeeded,
+} from '@/lib/saved-videos';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
-import { getSavedVideoKind, type Video } from '@/lib/types';
 import { getVideosByIds } from '@/lib/youtube';
+import type { Video } from '@/lib/types';
 
 function fallbackYouTubeVideo(id: string): Video {
   return {
@@ -29,23 +33,25 @@ export default async function VideosPage() {
     );
   }
 
-  const store = await getCookieChannelStore();
-  const ytIds = store.savedVideos.filter((video) => getSavedVideoKind(video) === 'youtube').map((video) => video.id);
+  await hydrateSavedVideosFromDriveIfNeeded(session.accessToken);
+  const saved = await getCookieSavedVideos();
+
+  const ytIds = saved.filter((video) => getSavedVideoKind(video) === 'youtube').map((video) => video.id);
   let videos: Video[] = [];
   try {
     videos = await getVideosByIds(ytIds);
   } catch {
     videos = [];
   }
-  const fetchedIds = new Set(videos.map((video) => video.id));
-  const videosWithFallbacks = [...videos, ...ytIds.filter((id) => !fetchedIds.has(id)).map(fallbackYouTubeVideo)];
+  const fetched = new Set(videos.map((video) => video.id));
+  const videosWithFallbacks = [...videos, ...ytIds.filter((id) => !fetched.has(id)).map(fallbackYouTubeVideo)];
 
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-2">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">Videos</h1>
       </section>
-      <SavedVideosClient savedVideos={store.savedVideos} videos={videosWithFallbacks} now={getRequestTime()} />
+      <WatchListClient initialSaved={saved} videos={videosWithFallbacks} now={getRequestTime()} />
     </div>
   );
 }

@@ -9,6 +9,7 @@ const TABS = [
   { href: '/channels', label: 'Channels', emoji: 'CH' },
   { href: '/updates', label: 'Updates', emoji: 'AM' },
   { href: '/videos', label: 'Videos', emoji: 'WL' },
+  { href: '/vocab', label: 'Vocab', emoji: 'AZ' },
 ];
 
 export function NavTabs() {

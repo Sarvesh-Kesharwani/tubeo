@@ -9,7 +9,7 @@ import {
   setCookieChannelStore,
 } from '@/lib/channels-cookie';
 import { getSession } from '@/lib/session';
-import type { ChannelPreferenceStore } from '@/lib/types';
+import type { ChannelPreferenceStore, VocabItem } from '@/lib/types';
 import { getEnvChannelIds } from '@/lib/whitelist';
 import { DEFAULT_VIEW_PREFERENCES, sameViewPreferences } from '@/lib/view-preferences';
 
@@ -17,22 +17,22 @@ function sameStringList(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((value, index) => b[index] === value);
 }
 
-function sameSavedVideos(a: ChannelPreferenceStore['savedVideos'], b: ChannelPreferenceStore['savedVideos']): boolean {
-  return (
-    a.length === b.length &&
-    a.every((video, index) => {
-      const other = b[index];
-      return (
-        other?.id === video.id &&
-        other.url === video.url &&
-        other.note === video.note &&
-        other.addedAt === video.addedAt
-      );
-    })
-  );
+function sameVocabs(a: VocabItem[], b: VocabItem[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => {
+    const other = b[index];
+    return (
+      other?.id === item.id &&
+      other.word === item.word &&
+      other.meaning === item.meaning &&
+      other.status === item.status &&
+      other.addedAt === item.addedAt &&
+      other.meaningUpdatedAt === item.meaningUpdatedAt
+    );
+  });
 }
 
-// GET - read Drive, return { driveIds, cookieIds, synced }
+// GET - read Drive, return sync state
 export async function GET() {
   const session = await getSession();
   if (!session?.accessToken) {
@@ -45,7 +45,7 @@ export async function GET() {
     view: DEFAULT_VIEW_PREFERENCES,
     viewUpdatedAt: new Date(0).toISOString(),
     updatesChannelIds: [],
-    savedVideos: [],
+    vocabs: [],
   };
   let driveData = null;
   let localMeta = { updatedAt: null as string | null, dirty: false };
@@ -73,13 +73,13 @@ export async function GET() {
     cookieStore.spaces.every((space, index) => driveSpaces[index] === space);
   const syncedView = sameViewPreferences(cookieStore.view, driveData?.view ?? cookieStore.view);
   const syncedUpdates = sameStringList(cookieStore.updatesChannelIds, driveData?.updatesChannelIds ?? []);
-  const syncedSavedVideos = sameSavedVideos(cookieStore.savedVideos, driveData?.savedVideos ?? []);
+  const syncedVocabs = sameVocabs(cookieStore.vocabs, driveData?.vocabs ?? []);
 
   return Response.json({
     driveIds: driveChannels.map((channel) => channel.id),
     cookieIds: cookieStore.channels.map((channel) => channel.id),
     initialized: await hasDriveSyncHydrated(),
-    synced: syncedChannels && syncedSpaces && syncedView && syncedUpdates && syncedSavedVideos && !localMeta.dirty,
+    synced: syncedChannels && syncedSpaces && syncedView && syncedUpdates && syncedVocabs && !localMeta.dirty,
     updatedAt: driveData?.updatedAt ?? null,
   });
 }
@@ -103,10 +103,10 @@ export async function POST() {
 
     if (driveData && !localMeta.dirty) {
       const driveOnly = driveData.channels.filter((channel) => !envIds.includes(channel.id));
-      const driveSavedIds = new Set(driveData.savedVideos.map((video) => video.id));
-      const localExtraSavedVideos = cookieStore.savedVideos.filter((video) => !driveSavedIds.has(video.id));
-      const mergedSavedVideos = [...localExtraSavedVideos, ...driveData.savedVideos];
-      const hadLocalSavedExtras = localExtraSavedVideos.length > 0;
+      const driveVocabIds = new Set(driveData.vocabs.map((vocab) => vocab.id));
+      const localExtraVocabs = cookieStore.vocabs.filter((vocab) => !driveVocabIds.has(vocab.id));
+      const mergedVocabs = [...localExtraVocabs, ...driveData.vocabs];
+      const hadLocalVocabExtras = localExtraVocabs.length > 0;
 
       const replacedLocal =
         cookieOnly.length !== driveOnly.length ||
@@ -117,7 +117,7 @@ export async function POST() {
         localSpaces.some((space, index) => driveData.spaces[index] !== space) ||
         !sameViewPreferences(localView, driveData.view) ||
         !sameStringList(cookieStore.updatesChannelIds, driveData.updatesChannelIds) ||
-        !sameSavedVideos(cookieStore.savedVideos, mergedSavedVideos);
+        cookieStore.vocabs.length !== mergedVocabs.length;
 
       await setCookieChannelStore({
         channels: driveOnly,
@@ -125,11 +125,11 @@ export async function POST() {
         view: driveData.view,
         viewUpdatedAt: driveData.viewUpdatedAt,
         updatesChannelIds: driveData.updatesChannelIds,
-        savedVideos: mergedSavedVideos,
+        vocabs: mergedVocabs,
       });
 
       let updatedAt = driveData.updatedAt;
-      if (hadLocalSavedExtras) {
+      if (hadLocalVocabExtras) {
         try {
           const syncedAt = new Date().toISOString();
           await writeDriveChannels(session.accessToken, {
@@ -138,7 +138,7 @@ export async function POST() {
             view: driveData.view,
             viewUpdatedAt: driveData.viewUpdatedAt,
             updatesChannelIds: driveData.updatesChannelIds,
-            savedVideos: mergedSavedVideos,
+            vocabs: mergedVocabs,
             quota: driveData.quota,
           });
           updatedAt = syncedAt;
@@ -168,7 +168,7 @@ export async function POST() {
       view: localView,
       viewUpdatedAt: cookieStore.viewUpdatedAt,
       updatesChannelIds: cookieStore.updatesChannelIds,
-      savedVideos: cookieStore.savedVideos,
+      vocabs: cookieStore.vocabs,
       quota: driveData?.quota,
     });
     await markCookieChannelStoreSynced(syncedAt);
@@ -212,7 +212,7 @@ export async function PUT() {
     view: driveData.view,
     viewUpdatedAt: driveData.viewUpdatedAt,
     updatesChannelIds: driveData.updatesChannelIds,
-    savedVideos: driveData.savedVideos,
+    vocabs: driveData.vocabs,
   });
   await markCookieChannelStoreSynced(driveData.updatedAt);
   await markDriveSyncHydrated();

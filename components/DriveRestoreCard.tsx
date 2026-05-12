@@ -56,7 +56,7 @@ export function DriveRestoreCard() {
       })
         .then(async (response) => {
           const result = (await response.json().catch(() => null)) as
-            | { error?: string; counts?: { channels: number; savedVideos: number } }
+            | { error?: string; counts?: { channels: number; vocabs?: number } }
             | null;
           if (!response.ok || result?.error) {
             setError(result?.error ?? 'Restore failed.');
@@ -64,7 +64,7 @@ export function DriveRestoreCard() {
           }
 
           sessionStorage.removeItem('tubeo_drive_pulled');
-          setMessage(`Restored ${result?.counts?.channels ?? 0} channels and ${result?.counts?.savedVideos ?? 0} saved videos.`);
+          setMessage(`Restored ${result?.counts?.channels ?? 0} channels and ${result?.counts?.vocabs ?? 0} vocab entries.`);
           router.refresh();
         })
         .catch(() => setError('Restore failed.'));

@@ -2,10 +2,13 @@ import { cookies } from 'next/headers';
 import { normalizeSpaceName } from './spaces';
 import {
   DEFAULT_CHANNEL_SPACE,
+  normalizeVocabWord,
+  vocabIdFromWord,
   type ChannelPreference,
   type ChannelPreferenceStore,
-  type SavedVideo,
   type ViewPreferences,
+  type VocabItem,
+  type VocabMeaningStatus,
 } from './types';
 import { DEFAULT_VIEW_PREFERENCES, normalizeViewPreferences } from './view-preferences';
 
@@ -56,20 +59,27 @@ function normalizeUpdatesChannelIds(value: string[] | undefined, channelIds: str
   return [...new Set((value ?? []).map((id) => id.trim()).filter((id) => valid.has(id)))];
 }
 
-function normalizeSavedVideos(value: SavedVideo[] | undefined): SavedVideo[] {
+function normalizeVocabStatus(status: unknown): VocabMeaningStatus {
+  return status === 'ready' || status === 'failed' ? status : 'pending';
+}
+
+function normalizeVocabs(value: VocabItem[] | undefined): VocabItem[] {
   const seen = new Set<string>();
-  const out: SavedVideo[] = [];
+  const out: VocabItem[] = [];
 
   for (const item of value ?? []) {
-    const id = item?.id?.trim();
-    const url = item?.url?.trim();
-    if (!id || !url || seen.has(id)) continue;
+    const word = normalizeVocabWord(item?.word ?? '');
+    if (!word) continue;
+    const id = (item?.id ?? '').trim() || vocabIdFromWord(word);
+    if (seen.has(id)) continue;
     seen.add(id);
     out.push({
       id,
-      url,
-      note: item.note?.trim() ?? '',
+      word,
+      meaning: typeof item.meaning === 'string' ? item.meaning : '',
+      status: normalizeVocabStatus(item.status),
       addedAt: item.addedAt || new Date().toISOString(),
+      meaningUpdatedAt: item.meaningUpdatedAt || item.addedAt || new Date().toISOString(),
     });
   }
 
@@ -86,9 +96,9 @@ function normalizeStore(store: ChannelPreferenceStore): ChannelPreferenceStore {
   const view = normalizeViewPreferences(store.view);
   const viewUpdatedAt = store.viewUpdatedAt || EPOCH;
   const updatesChannelIds = normalizeUpdatesChannelIds(store.updatesChannelIds, channels.map((channel) => channel.id));
-  const savedVideos = normalizeSavedVideos(store.savedVideos);
+  const vocabs = normalizeVocabs(store.vocabs);
 
-  return { channels, spaces, view, viewUpdatedAt, updatesChannelIds, savedVideos };
+  return { channels, spaces, view, viewUpdatedAt, updatesChannelIds, vocabs };
 }
 
 function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
@@ -100,7 +110,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       view: DEFAULT_VIEW_PREFERENCES,
       viewUpdatedAt: EPOCH,
       updatesChannelIds: [],
-      savedVideos: [],
+      vocabs: [],
     };
   }
 
@@ -115,7 +125,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       view: DEFAULT_VIEW_PREFERENCES,
       viewUpdatedAt: EPOCH,
       updatesChannelIds: [],
-      savedVideos: [],
+      vocabs: [],
     });
   }
 
@@ -127,7 +137,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
           view?: Partial<ViewPreferences>;
           viewUpdatedAt?: string;
           updatesChannelIds?: string[];
-          savedVideos?: SavedVideo[];
+          vocabs?: VocabItem[];
         }
       | Array<{ id?: string; space?: string }>
       | null;
@@ -148,7 +158,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       view: normalizeViewPreferences(view),
       viewUpdatedAt,
       updatesChannelIds: Array.isArray(parsed) ? [] : parsed?.updatesChannelIds ?? [],
-      savedVideos: Array.isArray(parsed) ? [] : parsed?.savedVideos ?? [],
+      vocabs: Array.isArray(parsed) ? [] : parsed?.vocabs ?? [],
     });
   } catch {
     return {
@@ -157,7 +167,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       view: DEFAULT_VIEW_PREFERENCES,
       viewUpdatedAt: EPOCH,
       updatesChannelIds: [],
-      savedVideos: [],
+      vocabs: [],
     };
   }
 }
@@ -284,7 +294,7 @@ export async function setCookieChannelPreferences(channels: ChannelPreference[])
     view: existing.view,
     viewUpdatedAt: existing.viewUpdatedAt,
     updatesChannelIds: existing.updatesChannelIds,
-    savedVideos: existing.savedVideos,
+    vocabs: existing.vocabs,
   });
 }
 
@@ -296,7 +306,7 @@ export async function setCookieChannelSpaces(spaces: string[]): Promise<void> {
     view: existing.view,
     viewUpdatedAt: existing.viewUpdatedAt,
     updatesChannelIds: existing.updatesChannelIds,
-    savedVideos: existing.savedVideos,
+    vocabs: existing.vocabs,
   });
 }
 
@@ -308,7 +318,7 @@ export async function setCookieViewPreferences(view: ViewPreferences, viewUpdate
     view,
     viewUpdatedAt,
     updatesChannelIds: existing.updatesChannelIds,
-    savedVideos: existing.savedVideos,
+    vocabs: existing.vocabs,
   });
 }
 

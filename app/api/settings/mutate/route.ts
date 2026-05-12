@@ -15,7 +15,15 @@ import {
 import { readDriveChannels, writeDriveChannels } from '@/lib/drive';
 import { getSession } from '@/lib/session';
 import { normalizeSpaceName } from '@/lib/spaces';
-import { DEFAULT_CHANNEL_SPACE, type ChannelPreference, type ChannelPreferenceStore, type SavedVideo } from '@/lib/types';
+import {
+  DEFAULT_CHANNEL_SPACE,
+  normalizeVocabWord,
+  vocabIdFromWord,
+  type ChannelPreference,
+  type ChannelPreferenceStore,
+  type VocabItem,
+} from '@/lib/types';
+import { DeepSeekConfigError, DeepSeekRequestError, fetchVocabMeaning } from '@/lib/deepseek';
 import { getEnvChannelIds } from '@/lib/whitelist';
 
 const API = 'https://www.googleapis.com/youtube/v3';
@@ -41,7 +49,7 @@ async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
       view: driveData.view,
       viewUpdatedAt: driveData.viewUpdatedAt,
       updatesChannelIds: driveData.updatesChannelIds,
-      savedVideos: driveData.savedVideos,
+      vocabs: driveData.vocabs,
     });
     await markCookieChannelStoreSynced(driveData.updatedAt);
   } else if (localMeta.updatedAt) {
@@ -99,128 +107,36 @@ function fail(message: string, status = 400) {
   return Response.json({ ok: false, error: message }, { status });
 }
 
-function mergeSavedVideos(local: SavedVideo[], drive: SavedVideo[] = []): SavedVideo[] {
-  const seen = new Set<string>();
-  const merged: SavedVideo[] = [];
-
-  for (const video of [...local, ...drive]) {
-    if (!video.id || seen.has(video.id)) continue;
-    seen.add(video.id);
-    merged.push(video);
-  }
-
-  return merged;
-}
-
-async function persistSavedVideoStore(
-  store: ChannelPreferenceStore,
-  options: { mergeDriveSavedVideos?: boolean } = {},
-): Promise<boolean> {
+async function persistChannelStore(store: ChannelPreferenceStore): Promise<boolean> {
   const session = await getSession();
   const canWriteDrive = Boolean(session?.accessToken) && await hasDriveSyncHydrated();
-  let nextStore = store;
 
   if (!canWriteDrive || !session?.accessToken) {
-    await setCookieChannelStore(nextStore);
+    await setCookieChannelStore(store);
     await markCookieChannelStoreDirty();
     return false;
   }
 
   try {
     const driveData = await readDriveChannels(session.accessToken);
-    if (options.mergeDriveSavedVideos) {
-      nextStore = {
-        ...nextStore,
-        savedVideos: mergeSavedVideos(nextStore.savedVideos, driveData?.savedVideos),
-      };
-    }
-
-    await setCookieChannelStore(nextStore);
+    await setCookieChannelStore(store);
     const envIds = getEnvChannelIds();
     const syncedAt = new Date().toISOString();
     await writeDriveChannels(session.accessToken, {
-      channels: nextStore.channels.filter((channel) => !envIds.includes(channel.id)),
-      spaces: nextStore.spaces,
-      view: nextStore.view,
-      viewUpdatedAt: nextStore.viewUpdatedAt,
-      updatesChannelIds: nextStore.updatesChannelIds,
-      savedVideos: nextStore.savedVideos,
+      channels: store.channels.filter((channel) => !envIds.includes(channel.id)),
+      spaces: store.spaces,
+      view: store.view,
+      viewUpdatedAt: store.viewUpdatedAt,
+      updatesChannelIds: store.updatesChannelIds,
+      vocabs: store.vocabs,
       quota: driveData?.quota,
     });
     await markCookieChannelStoreSynced(syncedAt);
     return true;
   } catch {
-    await setCookieChannelStore(nextStore);
+    await setCookieChannelStore(store);
     await markCookieChannelStoreDirty();
     return false;
-  }
-}
-
-const YOUTUBE_ID_RE = /^[\w-]{11}$/;
-
-function parseVideoId(raw: string): string | null {
-  const value = raw.trim();
-  if (YOUTUBE_ID_RE.test(value)) return value;
-
-  try {
-    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
-    if (!url.hostname.includes('youtu')) return null;
-
-    if (url.hostname.includes('youtu.be')) {
-      const candidate = url.pathname.split('/').filter(Boolean)[0];
-      return candidate && YOUTUBE_ID_RE.test(candidate) ? candidate : null;
-    }
-
-    const v = url.searchParams.get('v');
-    if (v && YOUTUBE_ID_RE.test(v)) return v;
-
-    const segs = url.pathname.split('/').filter(Boolean);
-    const keyed = ['shorts', 'embed', 'live', 'v'];
-    const idx = segs.findIndex((s) => keyed.includes(s));
-    if (idx !== -1) {
-      const candidate = segs[idx + 1];
-      if (candidate && YOUTUBE_ID_RE.test(candidate)) return candidate;
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function parseWebpageUrl(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return null;
-  try {
-    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    if (!url.hostname.includes('.')) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-function hashString(s: string): string {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h * 31 + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h).toString(36) + s.length.toString(36);
-}
-
-function parseInstagramReelId(raw: string): string | null {
-  const value = raw.trim();
-  try {
-    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
-    if (!url.hostname.includes('instagram.com')) return null;
-    const segments = url.pathname.split('/').filter(Boolean);
-    const idx = segments.findIndex((s) => s === 'reel' || s === 'reels' || s === 'p' || s === 'tv');
-    if (idx === -1) return null;
-    const id = segments[idx + 1];
-    return id && /^[\w-]+$/.test(id) ? id : null;
-  } catch {
-    return null;
   }
 }
 
@@ -310,7 +226,7 @@ export async function POST(req: Request) {
         view: store.view,
         viewUpdatedAt: store.viewUpdatedAt,
         updatesChannelIds: store.updatesChannelIds,
-        savedVideos: store.savedVideos,
+        vocabs: store.vocabs,
       });
       await markCookieChannelStoreDirty();
       return ok({ success: renamedSpace });
@@ -333,7 +249,7 @@ export async function POST(req: Request) {
         view: store.view,
         viewUpdatedAt: store.viewUpdatedAt,
         updatesChannelIds: store.updatesChannelIds,
-        savedVideos: store.savedVideos,
+        vocabs: store.vocabs,
       });
       await markCookieChannelStoreDirty();
       return ok({ success: targetSpace });
@@ -420,57 +336,91 @@ export async function POST(req: Request) {
       return ok({ success: channelIds.length });
     }
 
-    if (type === 'addSavedVideo') {
-      const url = String(body.url ?? '').trim();
-      const note = String(body.note ?? '').trim();
+    if (type === 'addVocab') {
+      const rawWord = String(body.word ?? '');
+      const word = normalizeVocabWord(rawWord);
+      if (!word) return fail('Enter a word.');
 
-      const ytId = parseVideoId(url);
-      const igId = ytId ? null : parseInstagramReelId(url);
-      const webpage = !ytId && !igId ? parseWebpageUrl(url) : null;
-      if (!ytId && !igId && !webpage) return fail('Enter a valid URL.');
-
-      const id = ytId
-        ? ytId
-        : igId
-          ? `ig_${igId}`
-          : `wp_${hashString(webpage!)}`;
-      const canonicalUrl = ytId
-        ? `https://www.youtube.com/watch?v=${ytId}`
-        : igId
-          ? `https://www.instagram.com/reel/${igId}/`
-          : webpage!;
-
+      const id = vocabIdFromWord(word);
       const store = await getCookieChannelStore();
-      const existing = store.savedVideos.filter((video) => video.id !== id);
-      const savedVideo = { id, url: canonicalUrl, note, addedAt: new Date().toISOString() };
-      const synced = await persistSavedVideoStore({
+      if (store.vocabs.some((vocab) => vocab.id === id)) {
+        return fail('That word is already in your list.');
+      }
+
+      const now = new Date().toISOString();
+      let meaning = '';
+      let status: VocabItem['status'] = 'pending';
+      let meaningError: string | null = null;
+      try {
+        meaning = await fetchVocabMeaning(word);
+        status = 'ready';
+      } catch (error) {
+        status = 'failed';
+        if (error instanceof DeepSeekConfigError) {
+          meaningError = error.message;
+        } else if (error instanceof DeepSeekRequestError) {
+          meaningError = error.message;
+        } else {
+          meaningError = (error as Error)?.message ?? 'Failed to fetch meaning.';
+        }
+      }
+
+      const vocab: VocabItem = {
+        id,
+        word,
+        meaning,
+        status,
+        addedAt: now,
+        meaningUpdatedAt: now,
+      };
+      const synced = await persistChannelStore({
         ...store,
-        savedVideos: [savedVideo, ...existing],
-      }, { mergeDriveSavedVideos: true });
-      revalidatePath('/videos');
-      return ok({ success: id, synced, savedVideo });
+        vocabs: [vocab, ...store.vocabs],
+      });
+      revalidatePath('/vocab');
+      return ok({ success: id, synced, vocab, meaningError });
     }
 
-    if (type === 'updateSavedVideo') {
+    if (type === 'refetchVocabMeaning') {
       const id = String(body.id ?? '').trim();
-      const note = String(body.note ?? '').trim();
       const store = await getCookieChannelStore();
-      const synced = await persistSavedVideoStore({
+      const target = store.vocabs.find((vocab) => vocab.id === id);
+      if (!target) return fail('That word is no longer in your list.');
+
+      const now = new Date().toISOString();
+      let meaning = target.meaning;
+      let status: VocabItem['status'] = target.status;
+      let meaningError: string | null = null;
+      try {
+        meaning = await fetchVocabMeaning(target.word);
+        status = 'ready';
+      } catch (error) {
+        status = 'failed';
+        meaningError = (error as Error)?.message ?? 'Failed to fetch meaning.';
+      }
+
+      const vocab: VocabItem = {
+        ...target,
+        meaning,
+        status,
+        meaningUpdatedAt: now,
+      };
+      const synced = await persistChannelStore({
         ...store,
-        savedVideos: store.savedVideos.map((video) => (video.id === id ? { ...video, note } : video)),
+        vocabs: store.vocabs.map((item) => (item.id === id ? vocab : item)),
       });
-      revalidatePath('/videos');
-      return ok({ success: id, synced });
+      revalidatePath('/vocab');
+      return ok({ success: id, synced, vocab, meaningError });
     }
 
-    if (type === 'removeSavedVideo') {
+    if (type === 'removeVocab') {
       const id = String(body.id ?? '').trim();
       const store = await getCookieChannelStore();
-      const synced = await persistSavedVideoStore({
+      const synced = await persistChannelStore({
         ...store,
-        savedVideos: store.savedVideos.filter((video) => video.id !== id),
+        vocabs: store.vocabs.filter((vocab) => vocab.id !== id),
       });
-      revalidatePath('/videos');
+      revalidatePath('/vocab');
       return ok({ success: id, synced });
     }
 
