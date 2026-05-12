@@ -3,11 +3,14 @@
 import { normalizeSpaceName } from './spaces';
 import {
   DEFAULT_CHANNEL_SPACE,
+  normalizeVocabWord,
+  vocabIdFromWord,
   type DailyQuotaUsage,
   type ChannelPreference,
   type ChannelPreferenceStore,
-  type SavedVideo,
   type ViewPreferences,
+  type VocabItem,
+  type VocabMeaningStatus,
 } from './types';
 import { DEFAULT_VIEW_PREFERENCES, normalizeViewPreferences } from './view-preferences';
 
@@ -27,7 +30,7 @@ export interface DriveChannelData {
   view?: Partial<ViewPreferences>;
   viewUpdatedAt?: string;
   updatesChannelIds?: string[];
-  savedVideos?: SavedVideo[];
+  vocabs?: VocabItem[];
   quota?: DailyQuotaUsage;
   updatedAt: string; // ISO
 }
@@ -84,20 +87,27 @@ function normalizeUpdatesChannelIds(value: string[] | undefined, channelIds: str
   return [...new Set((value ?? []).map((id) => id.trim()).filter((id) => valid.has(id)))];
 }
 
-function normalizeSavedVideos(value: SavedVideo[] | undefined): SavedVideo[] {
+function normalizeVocabStatus(status: unknown): VocabMeaningStatus {
+  return status === 'ready' || status === 'failed' ? status : 'pending';
+}
+
+function normalizeVocabs(value: VocabItem[] | undefined): VocabItem[] {
   const seen = new Set<string>();
-  const out: SavedVideo[] = [];
+  const out: VocabItem[] = [];
 
   for (const item of value ?? []) {
-    const id = item?.id?.trim();
-    const url = item?.url?.trim();
-    if (!id || !url || seen.has(id)) continue;
+    const word = normalizeVocabWord(item?.word ?? '');
+    if (!word) continue;
+    const id = (item?.id ?? '').trim() || vocabIdFromWord(word);
+    if (seen.has(id)) continue;
     seen.add(id);
     out.push({
       id,
-      url,
-      note: item.note?.trim() ?? '',
+      word,
+      meaning: typeof item.meaning === 'string' ? item.meaning : '',
+      status: normalizeVocabStatus(item.status),
       addedAt: item.addedAt || new Date().toISOString(),
+      meaningUpdatedAt: item.meaningUpdatedAt || item.addedAt || new Date().toISOString(),
     });
   }
 
@@ -161,7 +171,7 @@ function normalizeDriveStore(data: DriveChannelData | null): DriveSyncState | nu
     view: normalizeViewPreferences(data.view),
     viewUpdatedAt: data.viewUpdatedAt ?? data.updatedAt ?? EPOCH,
     updatesChannelIds: normalizeUpdatesChannelIds(data.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
-    savedVideos: normalizeSavedVideos(data.savedVideos),
+    vocabs: normalizeVocabs(data.vocabs),
     quota: normalizeQuotaUsage(data.quota),
     updatedAt: data.updatedAt ?? new Date(0).toISOString(),
   };
@@ -429,7 +439,7 @@ export async function restoreDriveBackup(
     view: backup.view,
     viewUpdatedAt: backup.viewUpdatedAt,
     updatesChannelIds: backup.updatesChannelIds,
-    savedVideos: backup.savedVideos,
+    vocabs: backup.vocabs,
     quota: backup.quota,
   });
 
@@ -476,7 +486,7 @@ export async function writeDriveChannels(accessToken: string, store: DriveWriteS
     view: normalizedView,
     viewUpdatedAt,
     updatesChannelIds: normalizeUpdatesChannelIds(store.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
-    savedVideos: normalizeSavedVideos(store.savedVideos),
+    vocabs: normalizeVocabs(store.vocabs),
     quota: normalizedQuota,
     updatedAt: new Date().toISOString(),
   };
@@ -506,7 +516,7 @@ export async function recordDriveQuotaUsage(
     view: DEFAULT_VIEW_PREFERENCES,
     viewUpdatedAt: EPOCH,
     updatesChannelIds: [],
-    savedVideos: [],
+    vocabs: [],
   },
 ): Promise<DailyQuotaUsage> {
   const normalizedUnits = Math.max(0, Math.ceil(units));
@@ -518,7 +528,7 @@ export async function recordDriveQuotaUsage(
         view: existing.view,
         viewUpdatedAt: existing.viewUpdatedAt,
         updatesChannelIds: existing.updatesChannelIds,
-        savedVideos: existing.savedVideos,
+        vocabs: existing.vocabs,
       }
     : fallbackStore;
   const quota = normalizeQuotaUsage(existing?.quota);
@@ -534,7 +544,7 @@ export async function recordDriveQuotaUsage(
     view: baseStore.view,
     viewUpdatedAt: baseStore.viewUpdatedAt,
     updatesChannelIds: baseStore.updatesChannelIds,
-    savedVideos: baseStore.savedVideos,
+    vocabs: baseStore.vocabs,
     quota: nextQuota,
   });
 

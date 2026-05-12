@@ -64,7 +64,7 @@ export async function POST(req: Request) {
         view: localFilters,
         viewUpdatedAt: localUpdatedAt,
         updatesChannelIds: driveData.updatesChannelIds,
-        savedVideos: driveData.savedVideos,
+        vocabs: driveData.vocabs,
         quota: driveData.quota,
       });
       await markCookieChannelStoreSynced(new Date().toISOString());

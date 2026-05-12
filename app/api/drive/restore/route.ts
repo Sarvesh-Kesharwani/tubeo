@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     view: restored.view,
     viewUpdatedAt: restored.viewUpdatedAt,
     updatesChannelIds: restored.updatesChannelIds,
-    savedVideos: restored.savedVideos,
+    vocabs: restored.vocabs,
   });
   await markCookieChannelStoreSynced(restoredAt);
   await markDriveSyncHydrated();
@@ -90,7 +90,7 @@ export async function POST(req: Request) {
   revalidatePath('/channels');
   revalidatePath('/settings');
   revalidatePath('/updates');
-  revalidatePath('/videos');
+  revalidatePath('/vocab');
 
   return Response.json({
     ok: true,
@@ -100,7 +100,7 @@ export async function POST(req: Request) {
     counts: {
       channels: restored.channels.length,
       spaces: restored.spaces.length,
-      savedVideos: restored.savedVideos.length,
+      vocabs: restored.vocabs.length,
       updatesChannelIds: restored.updatesChannelIds.length,
     },
   });

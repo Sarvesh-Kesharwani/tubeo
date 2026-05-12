@@ -32,22 +32,23 @@ export interface ViewPreferences {
   updates: MixedFeedViewPreferences;
 }
 
-export type SavedVideoKind = 'youtube' | 'instagram' | 'webpage';
+export type VocabMeaningStatus = 'pending' | 'ready' | 'failed';
 
-export interface SavedVideo {
+export interface VocabItem {
   id: string;
-  url: string;
-  note: string;
+  word: string;
+  meaning: string;
+  status: VocabMeaningStatus;
   addedAt: string;
+  meaningUpdatedAt: string;
 }
 
-export const INSTAGRAM_SAVED_PREFIX = 'ig_';
-export const WEBPAGE_SAVED_PREFIX = 'wp_';
+export function normalizeVocabWord(word: string): string {
+  return word.trim().replace(/\s+/g, ' ');
+}
 
-export function getSavedVideoKind(saved: { id: string }): SavedVideoKind {
-  if (saved.id.startsWith(INSTAGRAM_SAVED_PREFIX)) return 'instagram';
-  if (saved.id.startsWith(WEBPAGE_SAVED_PREFIX)) return 'webpage';
-  return 'youtube';
+export function vocabIdFromWord(word: string): string {
+  return normalizeVocabWord(word).toLocaleLowerCase('en-US');
 }
 
 export interface ChannelPreferenceStore {
@@ -56,7 +57,7 @@ export interface ChannelPreferenceStore {
   view: ViewPreferences;
   viewUpdatedAt: string;
   updatesChannelIds: string[];
-  savedVideos: SavedVideo[];
+  vocabs: VocabItem[];
 }
 
 export interface DailyQuotaUsage {
