@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { saveState, syncWithDrive } from '@/lib/filter-persistence';
+import { saveState } from '@/lib/filter-persistence';
 import type { MediaFilter, TimeRange } from '@/lib/types';
 
 export function ViewPreferenceTracker({
@@ -17,6 +17,9 @@ export function ViewPreferenceTracker({
 }) {
   useEffect(() => {
     const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void persist();
+    }, 350);
     const filters =
       page === 'channels'
         ? { channels: { range, media, space: space ?? 'all' } }
@@ -36,10 +39,13 @@ export function ViewPreferenceTracker({
 
         if (!res.ok) return;
         const data = (await res.json()) as { changed?: boolean };
-        void syncWithDrive();
         if (!data.changed) return;
 
-        window.dispatchEvent(new CustomEvent('tubeo-channels-changed', { detail: { autoSync: true } }));
+        window.dispatchEvent(
+          new CustomEvent('tubeo-channels-changed', {
+            detail: { autoSync: true, debounceMs: 1_500 },
+          }),
+        );
       } catch (error) {
         if ((error as Error).name !== 'AbortError') {
           console.error('Failed to persist view preferences', error);
@@ -47,8 +53,10 @@ export function ViewPreferenceTracker({
       }
     }
 
-    void persist();
-    return () => controller.abort();
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [media, page, range, space]);
 
   return null;

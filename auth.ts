@@ -1,5 +1,7 @@
 import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
+import Credentials from 'next-auth/providers/credentials';
+import { verifyHubTokenViaHub } from '@/lib/hub-sso';
 
 async function refreshGoogleToken(token: Record<string, unknown>) {
   const refreshToken = token.refreshToken as string | undefined;
@@ -30,9 +32,39 @@ async function refreshGoogleToken(token: Record<string, unknown>) {
   };
 }
 
+const isProd = process.env.NODE_ENV === 'production';
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
+  cookies: {
+    sessionToken: {
+      name: isProd ? '__Secure-authjs.session-token' : 'authjs.session-token',
+      options: {
+        httpOnly: true,
+        sameSite: isProd ? 'none' : 'lax',
+        secure: isProd,
+        path: '/',
+        ...(isProd ? { partitioned: true } : {}),
+      },
+    },
+  },
   providers: [
+    Credentials({
+      id: 'hub-sso',
+      name: 'Hub SSO',
+      credentials: { token: { type: 'text' } },
+      async authorize(credentials) {
+        const token = typeof credentials?.token === 'string' ? credentials.token : '';
+        if (!token) return null;
+        const result = await verifyHubTokenViaHub(token);
+        if (!result.ok || !result.sub) return null;
+        return {
+          id: result.sub,
+          email: result.email ?? result.sub,
+          name: result.email ?? result.sub,
+        };
+      },
+    }),
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,

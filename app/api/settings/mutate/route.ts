@@ -15,7 +15,7 @@ import {
 import { readDriveChannels, writeDriveChannels } from '@/lib/drive';
 import { getSession } from '@/lib/session';
 import { normalizeSpaceName } from '@/lib/spaces';
-import { DEFAULT_CHANNEL_SPACE, type ChannelPreferenceStore, type SavedVideo } from '@/lib/types';
+import { DEFAULT_CHANNEL_SPACE, type ChannelPreference, type ChannelPreferenceStore, type SavedVideo } from '@/lib/types';
 import { getEnvChannelIds } from '@/lib/whitelist';
 
 const API = 'https://www.googleapis.com/youtube/v3';
@@ -376,6 +376,39 @@ export async function POST(req: Request) {
       await setCookieChannelStore({ ...store, spaces: ordered });
       await markCookieChannelStoreDirty();
       return ok({ success: ordered.length });
+    }
+
+    if (type === 'setChannelOrderInSpace') {
+      const space = normalizeSpaceName(String(body.space ?? ''));
+      const incoming = Array.isArray(body.channelIds) ? body.channelIds.map((id) => String(id)) : [];
+      const store = await getCookieChannelStore();
+
+      const inSpaceIds = store.channels.filter((channel) => channel.space === space).map((channel) => channel.id);
+      const inSpaceSet = new Set(inSpaceIds);
+      const seen = new Set<string>();
+      const orderedIds: string[] = [];
+      for (const id of incoming) {
+        if (!inSpaceSet.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        orderedIds.push(id);
+      }
+      for (const id of inSpaceIds) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        orderedIds.push(id);
+      }
+
+      const prefMap = new Map(store.channels.map((channel) => [channel.id, channel]));
+      let cursor = 0;
+      const nextChannels: ChannelPreference[] = store.channels.map((channel) => {
+        if (channel.space !== space) return channel;
+        const nextId = orderedIds[cursor++];
+        return prefMap.get(nextId) ?? channel;
+      });
+
+      await setCookieChannelStore({ ...store, channels: nextChannels });
+      await markCookieChannelStoreDirty();
+      return ok({ success: space });
     }
 
     if (type === 'setUpdatesChannels') {

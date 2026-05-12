@@ -66,7 +66,7 @@ export function ChannelSettingsRow({ id, title, thumbnail, fromEnv, currentSpace
   const isCustomSpace = selectedSpace === CREATE_NEW_SPACE;
 
   return (
-    <li className="card space-y-3 px-4 py-3">
+    <div className="card space-y-3 px-4 py-3">
       <div className="flex items-center gap-3">
         {thumbnail ? (
           <Image src={thumbnail} alt="" width={36} height={36} className="rounded-full shrink-0" />
@@ -128,6 +128,6 @@ export function ChannelSettingsRow({ id, title, thumbnail, fromEnv, currentSpace
           />
         )}
       </div>
-    </li>
+    </div>
   );
 }

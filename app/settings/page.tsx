@@ -3,6 +3,7 @@ import { AddSpaceForm } from '@/components/AddSpaceForm';
 import { ChannelSettingsRow } from '@/components/ChannelSettingsRow';
 import { DriveRestoreCard } from '@/components/DriveRestoreCard';
 import { QuotaCard } from '@/components/QuotaCard';
+import { SpaceChannelsList, type SpaceChannelItem } from '@/components/SpaceChannelsList';
 import { SpaceSettingsRow } from '@/components/SpaceSettingsRow';
 import { SpacesManager, type SpaceItem } from '@/components/SpacesManager';
 import { getSession } from '@/lib/session';
@@ -38,32 +39,35 @@ export default async function SettingsPage() {
 
   const items: SpaceItem[] = spaces.map((space) => {
     const groupedPreferences = preferences.filter((channel) => channel.space === space);
+    const channelItems: SpaceChannelItem[] = groupedPreferences.map((channelPreference) => {
+      const channel = channelMap.get(channelPreference.id);
+      const fromEnv = envIds.includes(channelPreference.id);
+      return {
+        id: channelPreference.id,
+        fromEnv,
+        node: (
+          <ChannelSettingsRow
+            id={channelPreference.id}
+            title={channel?.title}
+            thumbnail={channel?.thumbnail}
+            fromEnv={fromEnv}
+            currentSpace={channelPreference.space}
+            spaces={spaces}
+          />
+        ),
+      };
+    });
     return {
       space,
       count: groupedPreferences.length,
       controls: <SpaceSettingsRow space={space} />,
       channels:
-        groupedPreferences.length === 0 ? (
+        channelItems.length === 0 ? (
           <p className="rounded-2xl border-2 border-dashed border-duo-border bg-duo-soft/60 px-3 py-2 text-xs font-bold text-duo-mute">
             No channels in this space yet.
           </p>
         ) : (
-          <ul className="space-y-2">
-            {groupedPreferences.map((channelPreference) => {
-              const channel = channelMap.get(channelPreference.id);
-              return (
-                <ChannelSettingsRow
-                  key={channelPreference.id}
-                  id={channelPreference.id}
-                  title={channel?.title}
-                  thumbnail={channel?.thumbnail}
-                  fromEnv={envIds.includes(channelPreference.id)}
-                  currentSpace={channelPreference.space}
-                  spaces={spaces}
-                />
-              );
-            })}
-          </ul>
+          <SpaceChannelsList space={space} items={channelItems} />
         ),
     };
   });
@@ -87,7 +91,7 @@ export default async function SettingsPage() {
         <div className="space-y-1">
           <h2 className="font-extrabold text-duo-ink">Spaces &amp; channels</h2>
           <p className="text-xs font-bold text-duo-ink/50">
-            Drag a space card by its header to reorder. Rename or delete spaces inline. Channels in each space stay grouped here.
+            Drag a space card by its header to reorder spaces. Drag a channel card to reorder it within its space. Rename or delete spaces inline.
           </p>
         </div>
         <AddSpaceForm />

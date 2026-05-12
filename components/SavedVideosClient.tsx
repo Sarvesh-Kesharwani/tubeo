@@ -131,7 +131,13 @@ export function SavedVideosClient({
         <div className="card p-8 text-center font-bold text-duo-mute">No saved videos yet.</div>
       ) : (
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {savedVideoItems.map((saved) => {
+          {[...savedVideoItems]
+            .sort((a, b) => {
+              const aTime = a.addedAt ? new Date(a.addedAt).getTime() : 0;
+              const bTime = b.addedAt ? new Date(b.addedAt).getTime() : 0;
+              return bTime - aTime;
+            })
+            .map((saved) => {
             const video = videoById.get(saved.id);
             const kind = getSavedVideoKind(saved);
             const igEmbedSrc =
