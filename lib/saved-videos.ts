@@ -4,14 +4,18 @@
 import { cookies } from 'next/headers';
 export {
   INSTAGRAM_SAVED_PREFIX,
+  UNCATEGORIZED_SAVED_CATEGORY,
   WEBPAGE_SAVED_PREFIX,
   getSavedVideoKind,
+  normalizeSavedVideoCategory,
   type SavedVideo,
   type SavedVideoKind,
 } from './saved-videos-shared';
 import {
   INSTAGRAM_SAVED_PREFIX,
+  UNCATEGORIZED_SAVED_CATEGORY,
   WEBPAGE_SAVED_PREFIX,
+  normalizeSavedVideoCategory,
   type SavedVideo,
 } from './saved-videos-shared';
 
@@ -68,10 +72,15 @@ function normalize(videos: SavedVideo[]): SavedVideo[] {
       id,
       url,
       note: typeof item.note === 'string' ? item.note.trim() : '',
+      category: normalizeSavedVideoCategory(item.category),
       addedAt: item.addedAt || new Date().toISOString(),
     });
   }
   return out;
+}
+
+export function isUncategorizedSavedVideo(video: SavedVideo): boolean {
+  return normalizeSavedVideoCategory(video.category) === UNCATEGORIZED_SAVED_CATEGORY;
 }
 
 export async function getCookieSavedVideos(): Promise<SavedVideo[]> {

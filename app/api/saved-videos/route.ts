@@ -40,6 +40,7 @@ export async function POST(req: Request) {
     id: resolved.id,
     url: resolved.url,
     note,
+    category: 'Uncategorized',
     addedAt: new Date().toISOString(),
   };
   const next = [savedVideo, ...existingOthers];
