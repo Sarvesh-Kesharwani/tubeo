@@ -242,7 +242,7 @@ async function uploadJsonFile(
   options?: { fileId?: string; parents?: string[] },
 ): Promise<void> {
   if (options?.fileId) {
-    await fetch(`${UPLOAD_API}/files/${options.fileId}?uploadType=media`, {
+    const res = await fetch(`${UPLOAD_API}/files/${options.fileId}?uploadType=media`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -250,6 +250,10 @@ async function uploadJsonFile(
       },
       body,
     });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Drive upload (PATCH ${name}) failed: ${res.status} ${detail.slice(0, 200)}`);
+    }
     return;
   }
 
@@ -267,7 +271,7 @@ async function uploadJsonFile(
     `--${boundary}--`,
   ].join('\r\n');
 
-  await fetch(`${UPLOAD_API}/files?uploadType=multipart`, {
+  const res = await fetch(`${UPLOAD_API}/files?uploadType=multipart`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -275,6 +279,10 @@ async function uploadJsonFile(
     },
     body: multipart,
   });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Drive upload (POST ${name}) failed: ${res.status} ${detail.slice(0, 200)}`);
+  }
 }
 
 async function ensureBackupFolder(accessToken: string): Promise<string> {
