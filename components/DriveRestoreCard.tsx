@@ -11,6 +11,8 @@ interface BackupSummary {
 
 interface BackupResponse {
   defaultDate: string;
+  yesterday: string;
+  target: BackupSummary | null;
   backups: BackupSummary[];
 }
 
@@ -40,7 +42,7 @@ export function DriveRestoreCard() {
   }, []);
 
   function restoreYesterday() {
-    if (!data?.defaultDate) return;
+    if (!data?.defaultDate || !data.target) return;
     const confirmed = window.confirm(`Restore Tubeo data from ${data.defaultDate}? Current Drive data will be snapshotted first.`);
     if (!confirmed) return;
 
@@ -69,24 +71,35 @@ export function DriveRestoreCard() {
     });
   }
 
-  const targetBackup = data?.backups.find((backup) => backup.date === data.defaultDate);
+  const targetBackup = data?.target ?? null;
+  const isYesterday = !!data && data.defaultDate === data.yesterday;
+  const buttonLabel = pending
+    ? 'Restoring...'
+    : targetBackup
+      ? isYesterday
+        ? 'Restore Yesterday'
+        : `Restore ${data!.defaultDate}`
+      : 'No backup available';
 
   return (
     <section className="card space-y-3 border-red-200 bg-red-50/60 p-5">
       <div className="space-y-1">
         <h2 className="font-extrabold text-duo-ink">Drive backup restore</h2>
         <p className="text-xs font-bold text-duo-ink/60">
-          Restore yesterday&apos;s Tubeo backup from Google Drive app data.
+          Restore your most recent Tubeo backup from Google Drive app data.
+          Yesterday&apos;s backup is used when available.
         </p>
       </div>
       <div className="rounded-2xl border-2 border-red-100 bg-white px-3 py-2 text-xs font-bold text-duo-ink/60">
         {data ? (
           targetBackup ? (
             <span>
-              Found {targetBackup.type} backup for {data.defaultDate}: {targetBackup.name}
+              {isYesterday
+                ? `Found ${targetBackup.type} backup for ${data.defaultDate} (yesterday): ${targetBackup.name}`
+                : `No backup for ${data.yesterday} (yesterday). Falling back to ${targetBackup.type} backup for ${data.defaultDate}: ${targetBackup.name}`}
             </span>
           ) : (
-            <span>No backup found for {data.defaultDate}.</span>
+            <span>No Tubeo backups found in Drive yet.</span>
           )
         ) : (
           <span>Checking Drive backups...</span>
@@ -98,7 +111,7 @@ export function DriveRestoreCard() {
         disabled={pending || !targetBackup}
         className="btn-duo bg-red-500 text-white shadow-red-200 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {pending ? 'Restoring...' : 'Restore Yesterday'}
+        {buttonLabel}
       </button>
       {message && <p className="text-sm font-bold text-duo-greenDark">{message}</p>}
       {error && <p className="text-sm font-bold text-red-500">{error}</p>}
