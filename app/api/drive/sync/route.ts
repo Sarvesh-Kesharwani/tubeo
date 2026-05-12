@@ -3,6 +3,7 @@ import {
   getCookieChannelSyncMeta,
   getCookieChannelStore,
   hasDriveSyncHydrated,
+  markCookieChannelStoreDirty,
   markCookieChannelStoreSynced,
   markDriveSyncHydrated,
   setCookieChannelStore,
@@ -102,6 +103,11 @@ export async function POST() {
 
     if (driveData && !localMeta.dirty) {
       const driveOnly = driveData.channels.filter((channel) => !envIds.includes(channel.id));
+      const driveSavedIds = new Set(driveData.savedVideos.map((video) => video.id));
+      const localExtraSavedVideos = cookieStore.savedVideos.filter((video) => !driveSavedIds.has(video.id));
+      const mergedSavedVideos = [...localExtraSavedVideos, ...driveData.savedVideos];
+      const hadLocalSavedExtras = localExtraSavedVideos.length > 0;
+
       const replacedLocal =
         cookieOnly.length !== driveOnly.length ||
         cookieOnly.some((channel, index) =>
@@ -111,7 +117,7 @@ export async function POST() {
         localSpaces.some((space, index) => driveData.spaces[index] !== space) ||
         !sameViewPreferences(localView, driveData.view) ||
         !sameStringList(cookieStore.updatesChannelIds, driveData.updatesChannelIds) ||
-        !sameSavedVideos(cookieStore.savedVideos, driveData.savedVideos);
+        !sameSavedVideos(cookieStore.savedVideos, mergedSavedVideos);
 
       await setCookieChannelStore({
         channels: driveOnly,
@@ -119,9 +125,30 @@ export async function POST() {
         view: driveData.view,
         viewUpdatedAt: driveData.viewUpdatedAt,
         updatesChannelIds: driveData.updatesChannelIds,
-        savedVideos: driveData.savedVideos,
+        savedVideos: mergedSavedVideos,
       });
-      await markCookieChannelStoreSynced(driveData.updatedAt);
+
+      let updatedAt = driveData.updatedAt;
+      if (hadLocalSavedExtras) {
+        try {
+          const syncedAt = new Date().toISOString();
+          await writeDriveChannels(session.accessToken, {
+            channels: driveOnly,
+            spaces: driveData.spaces,
+            view: driveData.view,
+            viewUpdatedAt: driveData.viewUpdatedAt,
+            updatesChannelIds: driveData.updatesChannelIds,
+            savedVideos: mergedSavedVideos,
+            quota: driveData.quota,
+          });
+          updatedAt = syncedAt;
+          await markCookieChannelStoreSynced(syncedAt);
+        } catch {
+          await markCookieChannelStoreDirty();
+        }
+      } else {
+        await markCookieChannelStoreSynced(driveData.updatedAt);
+      }
       await markDriveSyncHydrated();
 
       return Response.json({
@@ -129,8 +156,8 @@ export async function POST() {
         initialized: true,
         driveWins: true,
         replacedLocal,
-        updatedAt: driveData.updatedAt,
-        channelIds: driveData.channels.map((channel) => channel.id),
+        updatedAt,
+        channelIds: driveOnly.map((channel) => channel.id),
       });
     }
 

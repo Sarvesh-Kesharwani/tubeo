@@ -1,16 +1,14 @@
 import {
-  getCookieChannelSyncMeta,
   getCookieChannelStore,
   markCookieChannelStoreDirty,
   markCookieChannelStoreSynced,
-  setCookieChannelStore,
   setCookieViewPreferences,
 } from '@/lib/channels-cookie';
 import { readDriveChannels, writeDriveChannels } from '@/lib/drive';
 import { getSession } from '@/lib/session';
 import type { ViewPreferences } from '@/lib/types';
 import { getEnvChannelIds } from '@/lib/whitelist';
-import { normalizeViewPreferences, sameViewPreferences } from '@/lib/view-preferences';
+import { normalizeViewPreferences } from '@/lib/view-preferences';
 
 const EPOCH = new Date(0).toISOString();
 
@@ -51,55 +49,30 @@ export async function POST(req: Request) {
     const localWins = newerOrEqual(localUpdatedAt, driveUpdatedAt);
 
     if (driveData && !localWins) {
-      await setCookieChannelStore({
-        channels: driveData.channels.filter((channel) => !getEnvChannelIds().includes(channel.id)),
-        spaces: driveData.spaces,
-        view: driveData.view,
-        viewUpdatedAt: driveData.viewUpdatedAt,
-        updatesChannelIds: driveData.updatesChannelIds,
-        savedVideos: driveData.savedVideos,
-      });
+      await setCookieViewPreferences(driveData.view, driveData.viewUpdatedAt);
       await markCookieChannelStoreSynced(driveData.updatedAt);
       return response(driveData.view, driveData.viewUpdatedAt, 'drive', true);
     }
 
-    if (newerOrEqual(localUpdatedAt, cookieStore.viewUpdatedAt) || !sameViewPreferences(localFilters, cookieStore.view)) {
-      await setCookieViewPreferences(localFilters, localUpdatedAt);
+    await setCookieViewPreferences(localFilters, localUpdatedAt);
+
+    if (driveData) {
+      const envIds = getEnvChannelIds();
+      await writeDriveChannels(session.accessToken, {
+        channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
+        spaces: driveData.spaces,
+        view: localFilters,
+        viewUpdatedAt: localUpdatedAt,
+        updatesChannelIds: driveData.updatesChannelIds,
+        savedVideos: driveData.savedVideos,
+        quota: driveData.quota,
+      });
+      await markCookieChannelStoreSynced(new Date().toISOString());
+    } else {
+      await markCookieChannelStoreDirty(localUpdatedAt);
     }
 
-    const [latestStore, latestMeta] = await Promise.all([getCookieChannelStore(), getCookieChannelSyncMeta()]);
-    const envIds = getEnvChannelIds();
-    const nonViewStore =
-      latestMeta.dirty || !driveData
-        ? latestStore
-        : {
-            channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
-            spaces: driveData.spaces,
-            view: latestStore.view,
-            viewUpdatedAt: latestStore.viewUpdatedAt,
-            updatesChannelIds: driveData.updatesChannelIds,
-            savedVideos: driveData.savedVideos,
-          };
-    const nextStore = {
-      channels: nonViewStore.channels,
-      spaces: nonViewStore.spaces,
-      view: localFilters,
-      viewUpdatedAt: localUpdatedAt,
-      updatesChannelIds: nonViewStore.updatesChannelIds,
-      savedVideos: nonViewStore.savedVideos,
-    };
-    await setCookieChannelStore(nextStore);
-    await writeDriveChannels(session.accessToken, {
-      channels: nextStore.channels.filter((channel) => !envIds.includes(channel.id)),
-      spaces: nextStore.spaces,
-      view: localFilters,
-      viewUpdatedAt: localUpdatedAt,
-      updatesChannelIds: nextStore.updatesChannelIds,
-      savedVideos: nextStore.savedVideos,
-      quota: driveData?.quota,
-    });
-    await markCookieChannelStoreSynced(new Date().toISOString());
-    return response(localFilters, localUpdatedAt, 'local', true);
+    return response(localFilters, localUpdatedAt, 'local', Boolean(driveData));
   } catch {
     if (newerOrEqual(localUpdatedAt, cookieStore.viewUpdatedAt)) {
       await setCookieViewPreferences(localFilters, localUpdatedAt);
