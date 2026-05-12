@@ -6,6 +6,8 @@ export interface SavedVideo {
   note: string;
   category: string;
   addedAt: string;
+  source?: 'linknest';
+  linkNestId?: string;
 }
 
 export const INSTAGRAM_SAVED_PREFIX = 'ig_';

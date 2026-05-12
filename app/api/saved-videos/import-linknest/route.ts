@@ -18,11 +18,12 @@ export async function POST() {
     ]);
     const result = importLinkNestRows(current, rows);
 
-    if (result.imported.length === 0) {
+    if (result.imported.length === 0 && result.updated === 0) {
       return Response.json({
         ok: true,
         imported: 0,
         skipped: result.skipped,
+        updated: 0,
         total: result.total,
         videos: current,
       });
@@ -34,6 +35,7 @@ export async function POST() {
       ok: true,
       imported: result.imported.length,
       skipped: result.skipped,
+      updated: result.updated,
       total: result.total,
       videos: result.videos,
       synced: persisted.synced,

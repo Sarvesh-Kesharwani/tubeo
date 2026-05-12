@@ -74,6 +74,10 @@ function normalize(videos: SavedVideo[]): SavedVideo[] {
       note: typeof item.note === 'string' ? item.note.trim() : '',
       category: normalizeSavedVideoCategory(item.category),
       addedAt: item.addedAt || new Date().toISOString(),
+      ...(item.source === 'linknest' ? { source: 'linknest' as const } : {}),
+      ...(typeof item.linkNestId === 'string' && item.linkNestId.trim()
+        ? { linkNestId: item.linkNestId.trim() }
+        : {}),
     });
   }
   return out;

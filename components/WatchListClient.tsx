@@ -322,6 +322,7 @@ export function WatchListClient({
         ok?: boolean;
         imported?: number;
         skipped?: number;
+        updated?: number;
         videos?: SavedVideo[];
         error?: string;
       } | null;
@@ -337,7 +338,7 @@ export function WatchListClient({
         setSaved(nextVideos);
         setNoteDrafts(Object.fromEntries(nextVideos.map((video) => [video.id, video.note])));
       }
-      setMessage(`Imported ${data.imported ?? 0} from LinkNest. Skipped ${data.skipped ?? 0} duplicate${data.skipped === 1 ? '' : 's'}.`);
+      setMessage(`Imported ${data.imported ?? 0} from LinkNest. Updated ${data.updated ?? 0}. Skipped ${data.skipped ?? 0} duplicate${data.skipped === 1 ? '' : 's'}.`);
       router.refresh();
     } catch {
       setError('Failed to import LinkNest videos.');
@@ -370,11 +371,12 @@ export function WatchListClient({
       const response = await fetch('/api/saved-videos/linknest', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: item.url }),
+        body: JSON.stringify({ linkNestId: item.linkNestId, url: item.url }),
       });
       const data = (await response.json().catch(() => null)) as {
         ok?: boolean;
         deleted?: number;
+        archived?: number;
         error?: string;
       } | null;
       if (!response.ok || !data?.ok) {
@@ -384,6 +386,8 @@ export function WatchListClient({
       setMessage(
         data.deleted && data.deleted > 0
           ? `Removed ${data.deleted} LinkNest row${data.deleted === 1 ? '' : 's'}.`
+          : data.archived && data.archived > 0
+            ? `Removed ${data.archived} LinkNest row${data.archived === 1 ? '' : 's'} from import.`
           : 'No matching LinkNest row found.',
       );
     } catch {
