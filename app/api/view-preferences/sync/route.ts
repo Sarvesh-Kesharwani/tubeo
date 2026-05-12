@@ -6,7 +6,7 @@ import {
 } from '@/lib/channels-cookie';
 import { readDriveChannels, writeDriveChannels } from '@/lib/drive';
 import { getSession } from '@/lib/session';
-import type { ViewPreferences } from '@/lib/types';
+import type { ViewPreferences, VocabItem } from '@/lib/types';
 import { getEnvChannelIds } from '@/lib/whitelist';
 import { normalizeViewPreferences } from '@/lib/view-preferences';
 
@@ -18,6 +18,19 @@ function newerOrEqual(a: string, b: string): boolean {
 
 function response(filters: ViewPreferences, updatedAt: string, source: 'local' | 'drive' | 'cookie', synced: boolean) {
   return Response.json({ ok: true, filters, updatedAt, source, synced });
+}
+
+function mergeVocabs(local: VocabItem[], remote: VocabItem[] = []): VocabItem[] {
+  const seen = new Set<string>();
+  const merged: VocabItem[] = [];
+
+  for (const item of [...local, ...remote]) {
+    if (!item.id || seen.has(item.id)) continue;
+    seen.add(item.id);
+    merged.push(item);
+  }
+
+  return merged;
 }
 
 export async function POST(req: Request) {
@@ -64,7 +77,7 @@ export async function POST(req: Request) {
         view: localFilters,
         viewUpdatedAt: localUpdatedAt,
         updatesChannelIds: driveData.updatesChannelIds,
-        vocabs: driveData.vocabs,
+        vocabs: mergeVocabs(cookieStore.vocabs, driveData.vocabs),
         quota: driveData.quota,
       });
       await markCookieChannelStoreSynced(new Date().toISOString());

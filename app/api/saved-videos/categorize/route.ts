@@ -20,12 +20,20 @@ export async function POST() {
   }
 
   try {
+    const existingCategories = Array.from(
+      new Set(
+        current
+          .filter((video) => !isUncategorizedSavedVideo(video))
+          .map((video) => normalizeSavedVideoCategory(video.category)),
+      ),
+    );
     const categories = await categorizeSavedVideos(
       eligible.map((video) => ({
         id: video.id,
         url: video.url,
         note: video.note,
       })),
+      { existingCategories },
     );
     const categoryById = new Map(categories.map((item) => [item.id, normalizeSavedVideoCategory(item.category)]));
     const next = current.map((video) => {

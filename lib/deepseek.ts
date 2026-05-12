@@ -97,6 +97,10 @@ export interface SavedVideoCategorizationInput {
   note: string;
 }
 
+export interface SavedVideoCategorizationContext {
+  existingCategories?: string[];
+}
+
 export interface SavedVideoCategorization {
   id: string;
   category: string;
@@ -114,11 +118,16 @@ function parseJsonObject(text: string): unknown {
 
 export async function categorizeSavedVideos(
   items: SavedVideoCategorizationInput[],
+  context: SavedVideoCategorizationContext = {},
 ): Promise<SavedVideoCategorization[]> {
   if (items.length === 0) return [];
 
   const system =
     'You categorize saved watch-later items from their user note/tag and URL. ' +
+    'Cluster close items together instead of creating a fresh category for every item. ' +
+    'Reuse an existing category when it is even moderately close. ' +
+    'Create a new category only when the item clearly does not fit any existing or batch category. ' +
+    'Prefer 4-8 broad reusable categories over many narrow one-off categories. ' +
     'Use short useful category names, 1-3 words, Title Case. ' +
     'Return strict JSON only with shape {"items":[{"id":"...","category":"..."}]}. ' +
     'No markdown, no comments, no extra keys.';
@@ -126,9 +135,13 @@ export async function categorizeSavedVideos(
   const user = JSON.stringify({
     rules: [
       'Prefer the note/tag over URL.',
-      'Group similar intent into reusable categories.',
+      'Group by semantic closeness across the whole batch.',
+      'If two notes are about the same tool, skill, topic, creator, platform, or learning goal, use the same category.',
+      'Do not split tiny differences into separate categories.',
+      'Prefer existingCategories when close enough.',
       'If unclear, use "Watch Later".',
     ],
+    existingCategories: context.existingCategories ?? [],
     items,
   });
 
