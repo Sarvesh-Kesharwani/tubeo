@@ -43,14 +43,23 @@ function savedKey(videos: SavedVideo[]): string {
     .join('|');
 }
 
-function getInstagramEmbedSrc(saved: SavedVideo): string | null {
+function getInstagramEmbedSrc(saved: SavedVideo, autoplay = false): string | null {
   if (getSavedVideoKind(saved) !== 'instagram') return null;
   const type = saved.url.includes('/reel/') ? 'reel' : 'p';
-  return `https://www.instagram.com/${type}/${saved.id.slice(INSTAGRAM_SAVED_PREFIX.length)}/embed/`;
+  const src = `https://www.instagram.com/${type}/${saved.id.slice(INSTAGRAM_SAVED_PREFIX.length)}/embed/`;
+  return autoplay ? `${src}?autoplay=1&muted=1` : src;
 }
 
-function getYouTubeEmbedSrc(id: string): string {
-  return `https://www.youtube.com/embed/${id}`;
+function getYouTubeEmbedSrc(id: string, autoplay = false): string {
+  const params = new URLSearchParams({
+    playsinline: '1',
+    rel: '0',
+  });
+  if (autoplay) {
+    params.set('autoplay', '1');
+    params.set('mute', '1');
+  }
+  return `https://www.youtube.com/embed/${id}?${params}`;
 }
 
 export function WatchListClient({
@@ -74,6 +83,7 @@ export function WatchListClient({
   );
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
   const [feedOpen, setFeedOpen] = useState(false);
+  const [activeFeedId, setActiveFeedId] = useState<string | null>(null);
   const [url, setUrl] = useState('');
   const [note, setNote] = useState('');
   const [pending, setPending] = useState(false);
@@ -82,6 +92,8 @@ export function WatchListClient({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const initialKey = useRef(savedKey(initialSaved));
+  const feedViewportRef = useRef<HTMLDivElement>(null);
+  const feedItemRefs = useRef<Record<string, HTMLElement | null>>({});
 
   useEffect(() => {
     const key = savedKey(initialSaved);
@@ -131,6 +143,40 @@ export function WatchListClient({
       normalizeSavedVideoCategory(video.category) === UNCATEGORIZED_SAVED_CATEGORY &&
       video.note.trim(),
   ).length;
+
+  useEffect(() => {
+    if (!feedOpen) {
+      setActiveFeedId(null);
+      return;
+    }
+
+    const firstId = sorted[0]?.id ?? null;
+    setActiveFeedId((current) => current ?? firstId);
+
+    const root = feedViewportRef.current;
+    if (!root) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const activeEntry = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        const id = activeEntry?.target.getAttribute('data-feed-id');
+        if (id) setActiveFeedId(id);
+      },
+      {
+        root,
+        threshold: [0.55, 0.7, 0.9],
+      },
+    );
+
+    for (const item of sorted) {
+      const node = feedItemRefs.current[item.id];
+      if (node) observer.observe(node);
+    }
+
+    return () => observer.disconnect();
+  }, [feedOpen, sorted]);
 
   async function patchSavedVideo(
     id: string,
@@ -278,19 +324,26 @@ export function WatchListClient({
     }
   }
 
-  function renderSavedPreview(item: SavedVideo, feed = false) {
+  function handleOpenFeed() {
+    setActiveFeedId(sorted[0]?.id ?? null);
+    setFeedOpen(true);
+  }
+
+  function renderSavedPreview(item: SavedVideo, feed = false, active = false) {
     const video = videoById.get(item.id);
     const kind = getSavedVideoKind(item);
-    const igEmbedSrc = getInstagramEmbedSrc(item);
+    const igEmbedSrc = getInstagramEmbedSrc(item, feed && active);
 
     if (kind === 'instagram' && igEmbedSrc) {
       return (
         <>
           <div className={feed ? 'h-full w-full bg-black' : 'aspect-[16/10] w-full bg-black'}>
             <iframe
+              key={`${item.id}-${feed && active ? 'active' : 'idle'}`}
               src={igEmbedSrc}
               className="h-full w-full border-0"
-              loading="lazy"
+              loading={feed && active ? 'eager' : 'lazy'}
+              allow="autoplay; encrypted-media; picture-in-picture"
               allowFullScreen
               scrolling="no"
               title="Instagram reel"
@@ -311,7 +364,8 @@ export function WatchListClient({
     if (kind === 'youtube' && feed) {
       return (
         <iframe
-          src={getYouTubeEmbedSrc(item.id)}
+          key={`${item.id}-${active ? 'active' : 'idle'}`}
+          src={getYouTubeEmbedSrc(item.id, active)}
           className="h-full w-full border-0"
           title={video?.title ?? item.url}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -424,7 +478,7 @@ export function WatchListClient({
             </button>
             <button
               type="button"
-              onClick={() => setFeedOpen(true)}
+              onClick={handleOpenFeed}
               disabled={sorted.length === 0}
               className="btn-duo-ghost"
             >
@@ -490,10 +544,17 @@ export function WatchListClient({
                 Close
               </button>
             </div>
-            <div className="h-full snap-y snap-mandatory overflow-y-auto bg-black">
+            <div ref={feedViewportRef} className="h-full snap-y snap-mandatory overflow-y-auto bg-black">
               {sorted.map((item) => (
-                <section key={item.id} className="relative flex h-full snap-start flex-col bg-black">
-                  <div className="min-h-0 flex-1">{renderSavedPreview(item, true)}</div>
+                <section
+                  key={item.id}
+                  ref={(node) => {
+                    feedItemRefs.current[item.id] = node;
+                  }}
+                  data-feed-id={item.id}
+                  className="relative flex h-full snap-start flex-col bg-black"
+                >
+                  <div className="min-h-0 flex-1">{renderSavedPreview(item, true, activeFeedId === item.id)}</div>
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-4 text-white">
                     <p className="text-sm font-extrabold">{videoById.get(item.id)?.title ?? getHostname(item.url)}</p>
                     <p className="mt-1 text-xs font-bold text-white/75">{item.note || normalizeSavedVideoCategory(item.category)}</p>
