@@ -9,27 +9,13 @@ import {
   setCookieChannelStore,
 } from '@/lib/channels-cookie';
 import { getSession } from '@/lib/session';
-import type { ChannelPreferenceStore, VocabItem } from '@/lib/types';
+import type { ChannelPreferenceStore } from '@/lib/types';
+import { mergeVocabs, sameVocabs } from '@/lib/vocab-sync';
 import { getEnvChannelIds } from '@/lib/whitelist';
 import { DEFAULT_VIEW_PREFERENCES, sameViewPreferences } from '@/lib/view-preferences';
 
 function sameStringList(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((value, index) => b[index] === value);
-}
-
-function sameVocabs(a: VocabItem[], b: VocabItem[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((item, index) => {
-    const other = b[index];
-    return (
-      other?.id === item.id &&
-      other.word === item.word &&
-      other.meaning === item.meaning &&
-      other.status === item.status &&
-      other.addedAt === item.addedAt &&
-      other.meaningUpdatedAt === item.meaningUpdatedAt
-    );
-  });
 }
 
 // GET - read Drive, return sync state
@@ -103,10 +89,8 @@ export async function POST() {
 
     if (driveData && !localMeta.dirty) {
       const driveOnly = driveData.channels.filter((channel) => !envIds.includes(channel.id));
-      const driveVocabIds = new Set(driveData.vocabs.map((vocab) => vocab.id));
-      const localExtraVocabs = cookieStore.vocabs.filter((vocab) => !driveVocabIds.has(vocab.id));
-      const mergedVocabs = [...localExtraVocabs, ...driveData.vocabs];
-      const hadLocalVocabExtras = localExtraVocabs.length > 0;
+      const mergedVocabs = mergeVocabs(cookieStore.vocabs, driveData.vocabs);
+      const hadLocalVocabExtras = !sameVocabs(mergedVocabs, driveData.vocabs);
 
       const replacedLocal =
         cookieOnly.length !== driveOnly.length ||

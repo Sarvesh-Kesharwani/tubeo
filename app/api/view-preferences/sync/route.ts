@@ -6,7 +6,8 @@ import {
 } from '@/lib/channels-cookie';
 import { readDriveChannels, writeDriveChannels } from '@/lib/drive';
 import { getSession } from '@/lib/session';
-import type { ViewPreferences, VocabItem } from '@/lib/types';
+import type { ViewPreferences } from '@/lib/types';
+import { mergeVocabs, sameVocabs } from '@/lib/vocab-sync';
 import { getEnvChannelIds } from '@/lib/whitelist';
 import { normalizeViewPreferences } from '@/lib/view-preferences';
 
@@ -18,19 +19,6 @@ function newerOrEqual(a: string, b: string): boolean {
 
 function response(filters: ViewPreferences, updatedAt: string, source: 'local' | 'drive' | 'cookie', synced: boolean) {
   return Response.json({ ok: true, filters, updatedAt, source, synced });
-}
-
-function mergeVocabs(local: VocabItem[], remote: VocabItem[] = []): VocabItem[] {
-  const seen = new Set<string>();
-  const merged: VocabItem[] = [];
-
-  for (const item of [...local, ...remote]) {
-    if (!item.id || seen.has(item.id)) continue;
-    seen.add(item.id);
-    merged.push(item);
-  }
-
-  return merged;
 }
 
 export async function POST(req: Request) {
@@ -62,8 +50,24 @@ export async function POST(req: Request) {
     const localWins = newerOrEqual(localUpdatedAt, driveUpdatedAt);
 
     if (driveData && !localWins) {
+      const mergedVocabs = mergeVocabs(cookieStore.vocabs, driveData.vocabs);
       await setCookieViewPreferences(driveData.view, driveData.viewUpdatedAt);
-      await markCookieChannelStoreSynced(driveData.updatedAt);
+      if (!sameVocabs(mergedVocabs, driveData.vocabs)) {
+        const envIds = getEnvChannelIds();
+        const syncedAt = new Date().toISOString();
+        await writeDriveChannels(session.accessToken, {
+          channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
+          spaces: driveData.spaces,
+          view: driveData.view,
+          viewUpdatedAt: driveData.viewUpdatedAt,
+          updatesChannelIds: driveData.updatesChannelIds,
+          vocabs: mergedVocabs,
+          quota: driveData.quota,
+        });
+        await markCookieChannelStoreSynced(syncedAt);
+      } else {
+        await markCookieChannelStoreSynced(driveData.updatedAt);
+      }
       return response(driveData.view, driveData.viewUpdatedAt, 'drive', true);
     }
 

@@ -31,7 +31,7 @@ export function NavTabs() {
           <Link
             key={tab.href}
             href={href}
-            prefetch
+            prefetch={tab.href === '/vocab' ? false : undefined}
             onClick={() => setOptimisticPath(tab.href)}
             className={`btn-duo shrink-0 px-3 sm:px-4 ${
               active
