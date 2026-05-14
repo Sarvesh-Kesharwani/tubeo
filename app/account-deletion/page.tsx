@@ -5,10 +5,26 @@ export const metadata: Metadata = {
   description: 'How to request deletion of your Tubeo data.',
 };
 
-export default function DataDeletionPage() {
+export default async function DataDeletionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ code?: string }>;
+}) {
+  const { code } = await searchParams;
   return (
     <main className="mx-auto max-w-2xl px-6 py-12 text-slate-800">
       <h1 className="text-3xl font-bold mb-6">Data Deletion Instructions</h1>
+
+      {code && (
+        <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm">
+          <p className="font-semibold mb-1">Deletion request received</p>
+          <p>
+            Your confirmation code is{' '}
+            <code className="bg-white px-2 py-0.5 rounded">{code}</code>. Reference this code if you need to
+            check on the status of your deletion request.
+          </p>
+        </div>
+      )}
 
       <p className="mb-4">
         Tubeo stores the Instagram reels you forward to @toolshub2026, your Google account email if you sign
