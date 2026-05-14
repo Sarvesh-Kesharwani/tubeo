@@ -114,22 +114,25 @@ export function DiscoverChannelsClient({
   initialIgnored,
   initialSearches,
   activeSearchId,
+  initialDraft,
 }: {
   initialIgnored: DiscoveredChannel[];
   initialSearches: DiscoverSearchRecord[];
   activeSearchId?: string;
+  initialDraft?: DiscoverSearchFilters;
 }) {
   const router = useRouter();
   const initialState = stateFromSearch(initialSearches, activeSearchId, initialIgnored);
-  const [query, setQuery] = useState(initialState.filters?.q ?? '');
-  const [order, setOrder] = useState(initialState.filters?.order || 'relevance');
-  const [regionCode, setRegionCode] = useState(initialState.filters?.regionCode || 'IN');
-  const [relevanceLanguage, setRelevanceLanguage] = useState(initialState.filters?.relevanceLanguage || 'en');
-  const [safeSearch, setSafeSearch] = useState(initialState.filters?.safeSearch || 'moderate');
-  const [channelType, setChannelType] = useState(initialState.filters?.channelType || 'any');
-  const [topicId, setTopicId] = useState(initialState.filters?.topicId || '');
-  const [publishedAfter, setPublishedAfter] = useState(initialState.filters?.publishedAfter?.slice(0, 10) || '');
-  const [publishedBefore, setPublishedBefore] = useState(initialState.filters?.publishedBefore?.slice(0, 10) || '');
+  const initialFilters = initialDraft?.q || initialDraft?.order ? initialDraft : initialState.filters;
+  const [query, setQuery] = useState(initialFilters?.q ?? '');
+  const [order, setOrder] = useState(initialFilters?.order || 'relevance');
+  const [regionCode, setRegionCode] = useState(initialFilters?.regionCode || 'IN');
+  const [relevanceLanguage, setRelevanceLanguage] = useState(initialFilters?.relevanceLanguage || 'en');
+  const [safeSearch, setSafeSearch] = useState(initialFilters?.safeSearch || 'moderate');
+  const [channelType, setChannelType] = useState(initialFilters?.channelType || 'any');
+  const [topicId, setTopicId] = useState(initialFilters?.topicId || '');
+  const [publishedAfter, setPublishedAfter] = useState(initialFilters?.publishedAfter?.slice(0, 10) || '');
+  const [publishedBefore, setPublishedBefore] = useState(initialFilters?.publishedBefore?.slice(0, 10) || '');
   const [pageDraft, setPageDraft] = useState(String(initialState.pageNumber));
   const [state, setState] = useState<SearchState>(initialState);
   const [workingId, setWorkingId] = useState<string | null>(null);
@@ -141,6 +144,35 @@ export function DiscoverChannelsClient({
   useEffect(() => {
     setState((current) => ({ ...current, ignoredChannels: initialIgnored }));
   }, [initialIgnored]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void fetch('/api/app-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          discoverDraft: {
+            q: query.trim(),
+            order,
+            regionCode,
+            relevanceLanguage,
+            safeSearch,
+            channelType,
+            topicId,
+            publishedAfter,
+            publishedBefore,
+          },
+        }),
+        signal: controller.signal,
+      }).catch(() => undefined);
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [channelType, order, publishedAfter, publishedBefore, query, regionCode, relevanceLanguage, safeSearch, topicId]);
 
   function applyResponse(data: Record<string, any>) {
     const nextFilters = data.filters as DiscoverSearchFilters | undefined;
@@ -382,6 +414,17 @@ export function DiscoverChannelsClient({
           <span className="chip cursor-default">Page {state.pageNumber} of cached {Math.max(1, state.totalPagesCached)}</span>
           <span className="chip cursor-default">{state.hiddenIgnored} ignored hidden</span>
           <span className="chip cursor-default">{state.quotaUnits} quota units</span>
+        </div>
+        <div
+          className="flex flex-wrap items-center gap-2 text-xs font-extrabold text-duo-ink/60"
+          title="Tubeo internally re-sorts results after fetching channel stats. Not user-configurable yet."
+        >
+          <span className="text-[11px] uppercase tracking-wide text-duo-ink/45">Tubeo sort</span>
+          <span className="chip cursor-default">1. Subscribers (desc)</span>
+          <span aria-hidden className="text-duo-ink/35">→</span>
+          <span className="chip cursor-default">2. Total views (desc)</span>
+          <span aria-hidden className="text-duo-ink/35">→</span>
+          <span className="chip cursor-default">3. Video count (desc)</span>
         </div>
         {state.error && <p className="text-sm font-extrabold text-red-500">{state.error}</p>}
       </section>

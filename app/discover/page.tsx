@@ -9,6 +9,11 @@ export default async function DiscoverPage() {
   const cookieStore = await getCookieChannelStore();
   const remote = session?.user ? await readUserSyncState(session).catch(() => ({ state: null })) : { state: null };
   const store = remote.state ?? cookieStore;
+  const initialSearches = store.discoverSearches;
+  const draft = store.discoverDraft;
+  const activeSearchId =
+    store.activeDiscoverSearchId ??
+    (draft?.q ? initialSearches.find((search) => JSON.stringify(search.filters) === JSON.stringify(draft))?.id : undefined);
 
   if (!session?.user) {
     return (
@@ -30,8 +35,9 @@ export default async function DiscoverPage() {
       </section>
       <DiscoverChannelsClient
         initialIgnored={store.ignoredChannels}
-        initialSearches={store.discoverSearches}
-        activeSearchId={store.activeDiscoverSearchId}
+        initialSearches={initialSearches}
+        activeSearchId={activeSearchId}
+        initialDraft={draft}
       />
     </div>
   );

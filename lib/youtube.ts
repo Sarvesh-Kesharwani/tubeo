@@ -256,6 +256,57 @@ export async function getYouTubeChannelStats(channelId: string): Promise<Channel
   };
 }
 
+export async function getYouTubeChannelStatsMany(
+  channelIds: string[],
+): Promise<{ stats: Map<string, ChannelStatsResult>; quotaUnits: number }> {
+  const ids = [...new Set(channelIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return { stats: new Map(), quotaUnits: 0 };
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+
+  const stats = new Map<string, ChannelStatsResult>();
+  let quotaUnits = 0;
+
+  for (const chunk of chunks) {
+    const data = await yt<YTChannelStatsResp>(
+      'channels',
+      {
+        part: 'snippet,statistics',
+        id: chunk.join(','),
+        maxResults: '50',
+      },
+      600,
+    );
+    quotaUnits += 1;
+    for (const item of data.items) {
+      stats.set(item.id, {
+        subscriberCount: item.statistics?.hiddenSubscriberCount ? undefined : parseStat(item.statistics?.subscriberCount),
+        viewCount: parseStat(item.statistics?.viewCount),
+        videoCount: parseStat(item.statistics?.videoCount),
+        country: item.snippet?.country,
+        quotaUnits: 1,
+      });
+    }
+  }
+
+  return { stats, quotaUnits };
+}
+
+export function sortDiscoveredChannelsByStats(channels: DiscoveredChannel[]): DiscoveredChannel[] {
+  return [...channels].sort((a, b) => {
+    const subA = typeof a.subscriberCount === 'number' ? a.subscriberCount : -1;
+    const subB = typeof b.subscriberCount === 'number' ? b.subscriberCount : -1;
+    if (subA !== subB) return subB - subA;
+    const viewA = typeof a.viewCount === 'number' ? a.viewCount : -1;
+    const viewB = typeof b.viewCount === 'number' ? b.viewCount : -1;
+    if (viewA !== viewB) return viewB - viewA;
+    const vidA = typeof a.videoCount === 'number' ? a.videoCount : -1;
+    const vidB = typeof b.videoCount === 'number' ? b.videoCount : -1;
+    return vidB - vidA;
+  });
+}
+
 export async function searchYouTubeChannels(params: ChannelSearchParams): Promise<ChannelSearchResult> {
   const q = params.q.trim();
   if (!q) {
@@ -328,8 +379,25 @@ export async function searchYouTubeChannels(params: ChannelSearchParams): Promis
     pageToken = nextPageToken;
   }
 
+  const channels = [...out.values()].slice(0, 50);
+  const statsResult = await getYouTubeChannelStatsMany(channels.map((channel) => channel.id));
+  quotaUnits += statsResult.quotaUnits;
+
+  const enriched = channels.map((channel) => {
+    const stats = statsResult.stats.get(channel.id);
+    return stats
+      ? {
+          ...channel,
+          subscriberCount: stats.subscriberCount,
+          viewCount: stats.viewCount,
+          videoCount: stats.videoCount,
+          country: stats.country ?? channel.country,
+        }
+      : channel;
+  });
+
   return {
-    channels: [...out.values()].slice(0, 50),
+    channels: sortDiscoveredChannelsByStats(enriched),
     nextPageToken,
     prevPageToken,
     totalResults,

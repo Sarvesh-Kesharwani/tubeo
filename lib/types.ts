@@ -104,6 +104,8 @@ export interface ChannelPreferenceStore {
   ignoredChannels: DiscoveredChannel[];
   discoverSearches: DiscoverSearchRecord[];
   activeDiscoverSearchId?: string;
+  discoverDraft?: DiscoverSearchFilters;
+  lastPagePath?: string;
 }
 
 export interface DailyQuotaUsage {

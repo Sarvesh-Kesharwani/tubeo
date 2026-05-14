@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { NavTabs } from '@/components/NavTabs';
 import { AuthButton } from '@/components/AuthButton';
+import { AppStateTracker } from '@/components/AppStateTracker';
 import { FeatureRequestMenu } from '@/components/FeatureRequestMenu';
 import { SyncButton } from '@/components/SyncButton';
 import { HubSsoBridge } from '@/components/HubSsoBridge';
@@ -29,6 +30,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={nunito.className}>
       <body className="min-h-dvh">
         <HubSsoBridge />
+        <Suspense fallback={null}>
+          <AppStateTracker />
+        </Suspense>
         <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b-2 border-duo-border">
           <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-3 flex items-center justify-between gap-2 sm:gap-3">
             <Link href="/" className="flex items-center gap-2 font-extrabold text-lg sm:text-xl text-duo-greenDark shrink-0">

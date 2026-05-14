@@ -178,8 +178,24 @@ function normalizeStore(store: ChannelPreferenceStore): ChannelPreferenceStore {
   const activeDiscoverSearchId = discoverSearches.some((search) => search.id === store.activeDiscoverSearchId)
     ? store.activeDiscoverSearchId
     : discoverSearches[0]?.id;
+  const lastPagePath =
+    typeof store.lastPagePath === 'string' && store.lastPagePath.startsWith('/')
+      ? store.lastPagePath
+      : undefined;
 
-  return { channels, spaces, view, viewUpdatedAt, updatesChannelIds, vocabs, ignoredChannels, discoverSearches, activeDiscoverSearchId };
+  return {
+    channels,
+    spaces,
+    view,
+    viewUpdatedAt,
+    updatesChannelIds,
+    vocabs,
+    ignoredChannels,
+    discoverSearches,
+    activeDiscoverSearchId,
+    discoverDraft: normalizeDiscoverFilters(store.discoverDraft),
+    lastPagePath,
+  };
 }
 
 function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
@@ -194,6 +210,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       vocabs: [],
       ignoredChannels: [],
       discoverSearches: [],
+      discoverDraft: normalizeDiscoverFilters(undefined),
     };
   }
 
@@ -211,6 +228,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       vocabs: [],
       ignoredChannels: [],
       discoverSearches: [],
+      discoverDraft: normalizeDiscoverFilters(undefined),
     });
   }
 
@@ -226,6 +244,8 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
           ignoredChannels?: DiscoveredChannel[];
           discoverSearches?: DiscoverSearchRecord[];
           activeDiscoverSearchId?: string;
+          discoverDraft?: Partial<DiscoverSearchFilters>;
+          lastPagePath?: string;
         }
       | Array<{ id?: string; space?: string }>
       | null;
@@ -250,6 +270,8 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       ignoredChannels: Array.isArray(parsed) ? [] : parsed?.ignoredChannels ?? [],
       discoverSearches: Array.isArray(parsed) ? [] : parsed?.discoverSearches ?? [],
       activeDiscoverSearchId: Array.isArray(parsed) ? undefined : parsed?.activeDiscoverSearchId,
+      discoverDraft: Array.isArray(parsed) ? undefined : normalizeDiscoverFilters(parsed?.discoverDraft),
+      lastPagePath: Array.isArray(parsed) ? undefined : parsed?.lastPagePath,
     });
   } catch {
     return {
@@ -261,6 +283,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       vocabs: [],
       ignoredChannels: [],
       discoverSearches: [],
+      discoverDraft: normalizeDiscoverFilters(undefined),
     };
   }
 }
@@ -324,6 +347,8 @@ export async function setCookieChannelStore(store: ChannelPreferenceStore): Prom
     ...normalized,
     discoverSearches: [],
     activeDiscoverSearchId: normalized.activeDiscoverSearchId,
+    discoverDraft: normalized.discoverDraft,
+    lastPagePath: normalized.lastPagePath,
   });
   const chunks = value.match(new RegExp(`.{1,${COOKIE_CHUNK_SIZE}}`, 'g')) ?? [''];
 
@@ -396,6 +421,8 @@ export async function setCookieChannelPreferences(channels: ChannelPreference[])
     ignoredChannels: existing.ignoredChannels,
     discoverSearches: existing.discoverSearches,
     activeDiscoverSearchId: existing.activeDiscoverSearchId,
+    discoverDraft: existing.discoverDraft,
+    lastPagePath: existing.lastPagePath,
   });
 }
 
@@ -411,6 +438,8 @@ export async function setCookieChannelSpaces(spaces: string[]): Promise<void> {
     ignoredChannels: existing.ignoredChannels,
     discoverSearches: existing.discoverSearches,
     activeDiscoverSearchId: existing.activeDiscoverSearchId,
+    discoverDraft: existing.discoverDraft,
+    lastPagePath: existing.lastPagePath,
   });
 }
 
@@ -426,6 +455,8 @@ export async function setCookieViewPreferences(view: ViewPreferences, viewUpdate
     ignoredChannels: existing.ignoredChannels,
     discoverSearches: existing.discoverSearches,
     activeDiscoverSearchId: existing.activeDiscoverSearchId,
+    discoverDraft: existing.discoverDraft,
+    lastPagePath: existing.lastPagePath,
   });
 }
 

@@ -37,6 +37,8 @@ export interface DriveChannelData {
   ignoredChannels?: DiscoveredChannel[];
   discoverSearches?: DiscoverSearchRecord[];
   activeDiscoverSearchId?: string;
+  discoverDraft?: Partial<DiscoverSearchFilters>;
+  lastPagePath?: string;
   quota?: DailyQuotaUsage;
   updatedAt: string; // ISO
 }
@@ -242,6 +244,10 @@ export function normalizeDriveChannelData(data: DriveChannelData | null): DriveS
     ...(data.spaces ?? []),
     ...normalizedChannels.map((channel) => channel.space),
   ]);
+  const lastPagePath =
+    typeof data.lastPagePath === 'string' && data.lastPagePath.startsWith('/')
+      ? data.lastPagePath
+      : undefined;
 
   return {
     channels: normalizedChannels,
@@ -253,6 +259,8 @@ export function normalizeDriveChannelData(data: DriveChannelData | null): DriveS
     ignoredChannels: normalizeIgnoredChannels(data.ignoredChannels),
     discoverSearches: normalizeDiscoverSearches(data.discoverSearches),
     activeDiscoverSearchId: data.activeDiscoverSearchId,
+    discoverDraft: normalizeDiscoverFilters(data.discoverDraft),
+    lastPagePath,
     quota: normalizeQuotaUsage(data.quota),
     updatedAt: data.updatedAt ?? new Date(0).toISOString(),
   };
@@ -524,6 +532,8 @@ export async function restoreDriveBackup(
     ignoredChannels: backup.ignoredChannels,
     discoverSearches: backup.discoverSearches,
     activeDiscoverSearchId: backup.activeDiscoverSearchId,
+    discoverDraft: backup.discoverDraft,
+    lastPagePath: backup.lastPagePath,
     quota: backup.quota,
   });
 
@@ -592,6 +602,8 @@ export function buildDriveChannelData(store: DriveWriteState): DriveChannelData 
     ignoredChannels: normalizeIgnoredChannels(store.ignoredChannels),
     discoverSearches: normalizeDiscoverSearches(store.discoverSearches),
     activeDiscoverSearchId: store.activeDiscoverSearchId,
+    discoverDraft: normalizeDiscoverFilters(store.discoverDraft),
+    lastPagePath: store.lastPagePath,
     quota: normalizedQuota,
     updatedAt: new Date().toISOString(),
   };
@@ -610,6 +622,7 @@ export async function recordDriveQuotaUsage(
     vocabs: [],
     ignoredChannels: [],
     discoverSearches: [],
+    discoverDraft: normalizeDiscoverFilters(undefined),
   },
 ): Promise<DailyQuotaUsage> {
   const normalizedUnits = Math.max(0, Math.ceil(units));
@@ -625,6 +638,8 @@ export async function recordDriveQuotaUsage(
         ignoredChannels: existing.ignoredChannels,
         discoverSearches: existing.discoverSearches,
         activeDiscoverSearchId: existing.activeDiscoverSearchId,
+        discoverDraft: existing.discoverDraft,
+        lastPagePath: existing.lastPagePath,
       }
     : fallbackStore;
   const quota = normalizeQuotaUsage(existing?.quota);
@@ -644,6 +659,8 @@ export async function recordDriveQuotaUsage(
     ignoredChannels: baseStore.ignoredChannels,
     discoverSearches: baseStore.discoverSearches,
     activeDiscoverSearchId: baseStore.activeDiscoverSearchId,
+    discoverDraft: baseStore.discoverDraft,
+    lastPagePath: baseStore.lastPagePath,
     quota: nextQuota,
   });
 
