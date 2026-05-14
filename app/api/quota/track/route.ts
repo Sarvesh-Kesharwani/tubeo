@@ -1,10 +1,11 @@
 import { getCookieChannelStore } from '@/lib/channels-cookie';
+import { normalizeQuotaUsage } from '@/lib/drive';
 import { getSession } from '@/lib/session';
-import { trackYouTubeQuotaUsage } from '@/lib/youtube';
+import { readUserSyncState, writeUserSyncState } from '@/lib/sync-store';
 
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!session?.accessToken) {
+  if (!session?.user) {
     return Response.json({ error: 'Not signed in' }, { status: 401 });
   }
 
@@ -21,8 +22,26 @@ export async function POST(req: Request) {
   }
 
   try {
-    const cookieStore = await getCookieChannelStore();
-    await trackYouTubeQuotaUsage(session.accessToken, units, cookieStore);
+    const [cookieStore, remote] = await Promise.all([
+      getCookieChannelStore(),
+      readUserSyncState(session),
+    ]);
+    const base = remote.state ?? cookieStore;
+    const quota = normalizeQuotaUsage(remote.state?.quota);
+    await writeUserSyncState(session, {
+      channels: base.channels,
+      spaces: base.spaces,
+      view: base.view,
+      viewUpdatedAt: base.viewUpdatedAt,
+      updatesChannelIds: base.updatesChannelIds,
+      vocabs: base.vocabs,
+      ignoredChannels: base.ignoredChannels,
+      quota: {
+        ...quota,
+        used: quota.used + units,
+        updatedAt: new Date().toISOString(),
+      },
+    });
     return Response.json({ ok: true });
   } catch {
     return Response.json({ error: 'Failed to track quota usage' }, { status: 502 });

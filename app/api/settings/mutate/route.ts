@@ -12,15 +12,16 @@ import {
   setCookieChannelSpaces,
   setCookieChannelPreferences,
 } from '@/lib/channels-cookie';
-import { readDriveChannels, writeDriveChannels } from '@/lib/drive';
 import { getSession } from '@/lib/session';
 import { normalizeSpaceName } from '@/lib/spaces';
+import { readUserSyncState, writeUserSyncState } from '@/lib/sync-store';
 import {
   DEFAULT_CHANNEL_SPACE,
   normalizeVocabWord,
   vocabIdFromWord,
   type ChannelPreference,
   type ChannelPreferenceStore,
+  type DiscoveredChannel,
   type VocabItem,
 } from '@/lib/types';
 import { DeepSeekConfigError, DeepSeekRequestError, fetchVocabMeaning } from '@/lib/deepseek';
@@ -36,10 +37,11 @@ function apiKey(): string {
 
 async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
   const session = await getSession();
-  if (!session?.accessToken) return;
+  if (!session?.user) return;
   if (await hasDriveSyncHydrated()) return;
 
-  const driveData = await readDriveChannels(session.accessToken);
+  const remote = await readUserSyncState(session);
+  const driveData = remote.state;
   const localMeta = await getCookieChannelSyncMeta();
   if (driveData) {
     const envIds = getEnvChannelIds();
@@ -50,6 +52,7 @@ async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
       viewUpdatedAt: driveData.viewUpdatedAt,
       updatesChannelIds: driveData.updatesChannelIds,
       vocabs: driveData.vocabs,
+      ignoredChannels: driveData.ignoredChannels,
     });
     await markCookieChannelStoreSynced(driveData.updatedAt);
   } else if (localMeta.updatedAt) {
@@ -99,6 +102,7 @@ async function resolveToChannelId(raw: string): Promise<string> {
 function ok(data: Record<string, unknown>) {
   revalidatePath('/');
   revalidatePath('/channels');
+  revalidatePath('/discover');
   revalidatePath('/settings');
   return Response.json({ ok: true, ...data });
 }
@@ -109,26 +113,28 @@ function fail(message: string, status = 400) {
 
 async function persistChannelStore(store: ChannelPreferenceStore): Promise<boolean> {
   const session = await getSession();
-  const canWriteDrive = Boolean(session?.accessToken) && await hasDriveSyncHydrated();
+  const canWriteRemote = Boolean(session?.user) && await hasDriveSyncHydrated();
 
-  if (!canWriteDrive || !session?.accessToken) {
+  if (!canWriteRemote) {
     await setCookieChannelStore(store);
     await markCookieChannelStoreDirty();
     return false;
   }
 
   try {
-    const driveData = await readDriveChannels(session.accessToken);
+    const remote = await readUserSyncState(session);
+    const driveData = remote.state;
     await setCookieChannelStore(store);
     const envIds = getEnvChannelIds();
     const syncedAt = new Date().toISOString();
-    await writeDriveChannels(session.accessToken, {
+    await writeUserSyncState(session, {
       channels: store.channels.filter((channel) => !envIds.includes(channel.id)),
       spaces: store.spaces,
       view: store.view,
       viewUpdatedAt: store.viewUpdatedAt,
       updatesChannelIds: store.updatesChannelIds,
       vocabs: store.vocabs,
+      ignoredChannels: store.ignoredChannels,
       quota: driveData?.quota,
     });
     await markCookieChannelStoreSynced(syncedAt);
@@ -138,6 +144,25 @@ async function persistChannelStore(store: ChannelPreferenceStore): Promise<boole
     await markCookieChannelStoreDirty();
     return false;
   }
+}
+
+function normalizeDiscoveryChannel(value: unknown): DiscoveredChannel | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Partial<DiscoveredChannel>;
+  const id = item.id?.trim();
+  if (!id) return null;
+
+  return {
+    id,
+    title: item.title?.trim() || id,
+    thumbnail: item.thumbnail || '',
+    description: item.description || '',
+    ignoredAt: item.ignoredAt || new Date().toISOString(),
+    subscriberCount: typeof item.subscriberCount === 'number' ? item.subscriberCount : undefined,
+    viewCount: typeof item.viewCount === 'number' ? item.viewCount : undefined,
+    videoCount: typeof item.videoCount === 'number' ? item.videoCount : undefined,
+    country: item.country || undefined,
+  };
 }
 
 export async function POST(req: Request) {
@@ -227,6 +252,7 @@ export async function POST(req: Request) {
         viewUpdatedAt: store.viewUpdatedAt,
         updatesChannelIds: store.updatesChannelIds,
         vocabs: store.vocabs,
+        ignoredChannels: store.ignoredChannels,
       });
       await markCookieChannelStoreDirty();
       return ok({ success: renamedSpace });
@@ -250,6 +276,7 @@ export async function POST(req: Request) {
         viewUpdatedAt: store.viewUpdatedAt,
         updatesChannelIds: store.updatesChannelIds,
         vocabs: store.vocabs,
+        ignoredChannels: store.ignoredChannels,
       });
       await markCookieChannelStoreDirty();
       return ok({ success: targetSpace });
@@ -334,6 +361,50 @@ export async function POST(req: Request) {
       await markCookieChannelStoreDirty();
       revalidatePath('/updates');
       return ok({ success: channelIds.length });
+    }
+
+    if (type === 'acceptDiscoveredChannel') {
+      const channel = normalizeDiscoveryChannel(body.channel);
+      if (!channel) return fail('Channel payload missing.');
+
+      const store = await getCookieChannelStore();
+      const targetSpace = normalizeSpaceName('Uncategorized');
+      const exists = store.channels.some((item) => item.id === channel.id);
+      const synced = await persistChannelStore({
+        ...store,
+        channels: exists ? store.channels : [...store.channels, { id: channel.id, space: targetSpace }],
+        spaces: store.spaces.includes(targetSpace) ? store.spaces : [...store.spaces, targetSpace],
+        ignoredChannels: store.ignoredChannels.filter((item) => item.id !== channel.id),
+      });
+      return ok({ success: channel.id, synced });
+    }
+
+    if (type === 'ignoreDiscoveredChannel') {
+      const channel = normalizeDiscoveryChannel(body.channel);
+      if (!channel) return fail('Channel payload missing.');
+
+      const store = await getCookieChannelStore();
+      const exists = store.ignoredChannels.some((item) => item.id === channel.id);
+      const synced = await persistChannelStore({
+        ...store,
+        channels: store.channels.filter((item) => item.id !== channel.id),
+        ignoredChannels: exists
+          ? store.ignoredChannels.map((item) => (item.id === channel.id ? { ...channel, ignoredAt: item.ignoredAt } : item))
+          : [{ ...channel, ignoredAt: new Date().toISOString() }, ...store.ignoredChannels],
+      });
+      return ok({ success: channel.id, synced });
+    }
+
+    if (type === 'restoreIgnoredChannel') {
+      const channelId = String(body.channelId ?? '').trim();
+      if (!channelId) return fail('Channel ID missing.');
+
+      const store = await getCookieChannelStore();
+      const synced = await persistChannelStore({
+        ...store,
+        ignoredChannels: store.ignoredChannels.filter((item) => item.id !== channelId),
+      });
+      return ok({ success: channelId, synced });
     }
 
     if (type === 'addVocab') {

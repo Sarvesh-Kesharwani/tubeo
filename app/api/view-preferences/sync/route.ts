@@ -4,8 +4,8 @@ import {
   markCookieChannelStoreSynced,
   setCookieViewPreferences,
 } from '@/lib/channels-cookie';
-import { readDriveChannels, writeDriveChannels } from '@/lib/drive';
 import { getSession } from '@/lib/session';
+import { readUserSyncState, writeUserSyncState } from '@/lib/sync-store';
 import type { ViewPreferences } from '@/lib/types';
 import { mergeVocabs, sameVocabs } from '@/lib/vocab-sync';
 import { getEnvChannelIds } from '@/lib/whitelist';
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   const cookieStore = await getCookieChannelStore();
   const session = await getSession();
 
-  if (!session?.accessToken) {
+  if (!session?.user) {
     if (newerOrEqual(localUpdatedAt, cookieStore.viewUpdatedAt)) {
       await setCookieViewPreferences(localFilters, localUpdatedAt);
       await markCookieChannelStoreDirty(localUpdatedAt);
@@ -45,7 +45,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const driveData = await readDriveChannels(session.accessToken);
+    const remote = await readUserSyncState(session);
+    const driveData = remote.state;
     const driveUpdatedAt = driveData?.viewUpdatedAt ?? EPOCH;
     const localWins = newerOrEqual(localUpdatedAt, driveUpdatedAt);
 
@@ -55,13 +56,14 @@ export async function POST(req: Request) {
       if (!sameVocabs(mergedVocabs, driveData.vocabs)) {
         const envIds = getEnvChannelIds();
         const syncedAt = new Date().toISOString();
-        await writeDriveChannels(session.accessToken, {
+        await writeUserSyncState(session, {
           channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
           spaces: driveData.spaces,
           view: driveData.view,
           viewUpdatedAt: driveData.viewUpdatedAt,
           updatesChannelIds: driveData.updatesChannelIds,
           vocabs: mergedVocabs,
+          ignoredChannels: driveData.ignoredChannels,
           quota: driveData.quota,
         });
         await markCookieChannelStoreSynced(syncedAt);
@@ -75,13 +77,14 @@ export async function POST(req: Request) {
 
     if (driveData) {
       const envIds = getEnvChannelIds();
-      await writeDriveChannels(session.accessToken, {
+      await writeUserSyncState(session, {
         channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
         spaces: driveData.spaces,
         view: localFilters,
         viewUpdatedAt: localUpdatedAt,
         updatesChannelIds: driveData.updatesChannelIds,
         vocabs: mergeVocabs(cookieStore.vocabs, driveData.vocabs),
+        ignoredChannels: driveData.ignoredChannels,
         quota: driveData.quota,
       });
       await markCookieChannelStoreSynced(new Date().toISOString());

@@ -14,9 +14,9 @@ import {
   setCookieChannelSpaces,
   setCookieChannelPreferences,
 } from '@/lib/channels-cookie';
-import { readDriveChannels } from '@/lib/drive';
 import { getSession } from '@/lib/session';
 import { normalizeSpaceName } from '@/lib/spaces';
+import { readUserSyncState } from '@/lib/sync-store';
 import { DEFAULT_CHANNEL_SPACE } from '@/lib/types';
 import { getEnvChannelIds } from '@/lib/whitelist';
 
@@ -30,10 +30,11 @@ function apiKey(): string {
 
 async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
   const session = await getSession();
-  if (!session?.accessToken) return;
+  if (!session?.user) return;
   if (await hasDriveSyncHydrated()) return;
 
-  const driveData = await readDriveChannels(session.accessToken);
+  const remote = await readUserSyncState(session);
+  const driveData = remote.state;
   const localMeta = await getCookieChannelSyncMeta();
   if (driveData) {
     const envIds = getEnvChannelIds();
@@ -44,6 +45,7 @@ async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
       viewUpdatedAt: driveData.viewUpdatedAt,
       updatesChannelIds: driveData.updatesChannelIds,
       vocabs: driveData.vocabs,
+      ignoredChannels: driveData.ignoredChannels,
     });
     await markCookieChannelStoreSynced(driveData.updatedAt);
   } else if (localMeta.updatedAt) {
@@ -203,6 +205,7 @@ export async function renameChannelSpaceAction(
     viewUpdatedAt: store.viewUpdatedAt,
     updatesChannelIds: store.updatesChannelIds,
     vocabs: store.vocabs,
+    ignoredChannels: store.ignoredChannels,
   });
   await markCookieChannelStoreDirty();
 
@@ -233,6 +236,7 @@ export async function deleteChannelSpaceAction(spaceToDelete: string): Promise<{
     viewUpdatedAt: store.viewUpdatedAt,
     updatesChannelIds: store.updatesChannelIds,
     vocabs: store.vocabs,
+    ignoredChannels: store.ignoredChannels,
   });
   await markCookieChannelStoreDirty();
 

@@ -12,6 +12,7 @@ import type {
   Channel,
   ChannelPreferenceStore,
   ChannelWithVideos,
+  DiscoveredChannel,
   MediaFilter,
   QuotaSummary,
   TimeRange,
@@ -94,10 +95,71 @@ interface YTCommentThreadsResp {
   }>;
 }
 
+interface YTSearchListResp {
+  items: Array<{
+    id: { kind?: string; channelId?: string };
+    snippet: {
+      channelId?: string;
+      title?: string;
+      description?: string;
+      thumbnails?: { default?: { url: string }; medium?: { url: string }; high?: { url: string } };
+      publishedAt?: string;
+    };
+  }>;
+  nextPageToken?: string;
+  prevPageToken?: string;
+  pageInfo?: { totalResults?: number; resultsPerPage?: number };
+  regionCode?: string;
+}
+
+interface YTChannelStatsResp {
+  items: Array<{
+    id: string;
+    snippet?: { country?: string };
+    statistics?: { subscriberCount?: string; viewCount?: string; videoCount?: string; hiddenSubscriberCount?: boolean };
+  }>;
+}
+
 interface ChannelVideosWithQuota {
   videos: Video[];
   playlistCalls: number;
   videoDetailCalls: number;
+}
+
+export type ChannelSearchOrder = 'date' | 'rating' | 'relevance' | 'title' | 'videoCount' | 'viewCount';
+export type ChannelSearchSafeSearch = 'moderate' | 'none' | 'strict';
+export type ChannelSearchType = 'any' | 'show';
+
+export interface ChannelSearchParams {
+  q: string;
+  order?: ChannelSearchOrder;
+  regionCode?: string;
+  relevanceLanguage?: string;
+  safeSearch?: ChannelSearchSafeSearch;
+  channelType?: ChannelSearchType;
+  publishedAfter?: string;
+  publishedBefore?: string;
+  topicId?: string;
+  pageToken?: string;
+  ignoredIds?: string[];
+}
+
+export interface ChannelSearchResult {
+  channels: DiscoveredChannel[];
+  nextPageToken?: string;
+  prevPageToken?: string;
+  totalResults?: number;
+  resultsPerPage?: number;
+  hiddenIgnored: number;
+  quotaUnits: number;
+}
+
+export interface ChannelStatsResult {
+  subscriberCount?: number;
+  viewCount?: number;
+  videoCount?: number;
+  country?: string;
+  quotaUnits: number;
 }
 
 function parseDurationToSeconds(value: string | undefined): number | undefined {
@@ -145,6 +207,136 @@ async function getVideoDetails(videoIds: string[]): Promise<Map<string, { durati
       ];
     }),
   );
+}
+
+function parseStat(value: string | undefined): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function validIsoDateTime(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return new Date(parsed).toISOString();
+}
+
+function validRegionCode(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toUpperCase();
+  return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
+}
+
+function validLanguageCode(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized && /^[a-z]{2}(?:-[A-Za-z]+)?$/.test(normalized) ? normalized : undefined;
+}
+
+export async function getYouTubeChannelStats(channelId: string): Promise<ChannelStatsResult | null> {
+  const id = channelId.trim();
+  if (!id) return null;
+
+  const data = await yt<YTChannelStatsResp>(
+    'channels',
+    {
+      part: 'snippet,statistics',
+      id,
+      maxResults: '1',
+    },
+    600,
+  );
+  const item = data.items[0];
+  if (!item) return null;
+
+  return {
+    subscriberCount: item.statistics?.hiddenSubscriberCount ? undefined : parseStat(item.statistics?.subscriberCount),
+    viewCount: parseStat(item.statistics?.viewCount),
+    videoCount: parseStat(item.statistics?.videoCount),
+    country: item.snippet?.country,
+    quotaUnits: 1,
+  };
+}
+
+export async function searchYouTubeChannels(params: ChannelSearchParams): Promise<ChannelSearchResult> {
+  const q = params.q.trim();
+  if (!q) {
+    return { channels: [], hiddenIgnored: 0, quotaUnits: 0 };
+  }
+
+  const ignoredIds = new Set(params.ignoredIds ?? []);
+  const out = new Map<string, DiscoveredChannel>();
+  let pageToken = params.pageToken?.trim() || undefined;
+  let nextPageToken: string | undefined;
+  let prevPageToken: string | undefined;
+  let totalResults: number | undefined;
+  let resultsPerPage: number | undefined;
+  let hiddenIgnored = 0;
+  let quotaUnits = 0;
+
+  for (let page = 0; page < 5 && out.size < 50; page++) {
+    const data = await yt<YTSearchListResp>(
+      'search',
+      {
+        part: 'snippet',
+        type: 'channel',
+        q,
+        maxResults: '50',
+        order: params.order ?? 'relevance',
+        safeSearch: params.safeSearch ?? 'moderate',
+        ...(params.channelType && params.channelType !== 'any' ? { channelType: params.channelType } : {}),
+        ...(validRegionCode(params.regionCode) ? { regionCode: validRegionCode(params.regionCode)! } : {}),
+        ...(validLanguageCode(params.relevanceLanguage) ? { relevanceLanguage: validLanguageCode(params.relevanceLanguage)! } : {}),
+        ...(validIsoDateTime(params.publishedAfter) ? { publishedAfter: validIsoDateTime(params.publishedAfter)! } : {}),
+        ...(validIsoDateTime(params.publishedBefore) ? { publishedBefore: validIsoDateTime(params.publishedBefore)! } : {}),
+        ...(params.topicId?.trim() ? { topicId: params.topicId.trim() } : {}),
+        ...(pageToken ? { pageToken } : {}),
+      },
+      0,
+    );
+    quotaUnits += 100;
+    nextPageToken = data.nextPageToken;
+    prevPageToken = data.prevPageToken;
+    totalResults = data.pageInfo?.totalResults ?? totalResults;
+    resultsPerPage = data.pageInfo?.resultsPerPage ?? resultsPerPage;
+
+    const found = data.items
+      .map((item) => {
+        const id = item.id.channelId || item.snippet.channelId || '';
+        return {
+          id,
+          title: item.snippet.title || id,
+          thumbnail:
+            item.snippet.thumbnails?.high?.url ??
+            item.snippet.thumbnails?.medium?.url ??
+            item.snippet.thumbnails?.default?.url ??
+            '',
+          description: item.snippet.description || '',
+        } satisfies DiscoveredChannel;
+      })
+      .filter((channel) => channel.id);
+
+    for (const channel of found) {
+      if (ignoredIds.has(channel.id)) {
+        hiddenIgnored += 1;
+        continue;
+      }
+      if (out.has(channel.id)) continue;
+      out.set(channel.id, channel);
+      if (out.size >= 50) break;
+    }
+
+    if (!nextPageToken) break;
+    pageToken = nextPageToken;
+  }
+
+  return {
+    channels: [...out.values()].slice(0, 50),
+    nextPageToken,
+    prevPageToken,
+    totalResults,
+    resultsPerPage,
+    hiddenIgnored,
+    quotaUnits,
+  };
 }
 
 function buildQuotaSummary(

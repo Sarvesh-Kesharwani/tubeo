@@ -8,6 +8,7 @@ import {
   type DailyQuotaUsage,
   type ChannelPreference,
   type ChannelPreferenceStore,
+  type DiscoveredChannel,
   type ViewPreferences,
   type VocabItem,
   type VocabMeaningStatus,
@@ -31,6 +32,7 @@ export interface DriveChannelData {
   viewUpdatedAt?: string;
   updatesChannelIds?: string[];
   vocabs?: VocabItem[];
+  ignoredChannels?: DiscoveredChannel[];
   quota?: DailyQuotaUsage;
   updatedAt: string; // ISO
 }
@@ -114,6 +116,30 @@ function normalizeVocabs(value: VocabItem[] | undefined): VocabItem[] {
   return out;
 }
 
+function normalizeIgnoredChannels(value: DiscoveredChannel[] | undefined): DiscoveredChannel[] {
+  const seen = new Set<string>();
+  const out: DiscoveredChannel[] = [];
+
+  for (const item of value ?? []) {
+    const id = item?.id?.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      title: item.title?.trim() || id,
+      thumbnail: item.thumbnail || '',
+      description: item.description || '',
+      ignoredAt: item.ignoredAt || new Date().toISOString(),
+      subscriberCount: typeof item.subscriberCount === 'number' ? item.subscriberCount : undefined,
+      viewCount: typeof item.viewCount === 'number' ? item.viewCount : undefined,
+      videoCount: typeof item.videoCount === 'number' ? item.videoCount : undefined,
+      country: item.country || undefined,
+    });
+  }
+
+  return out;
+}
+
 function safeQuotaDate(now = new Date()): string {
   try {
     return new Intl.DateTimeFormat('en-CA', {
@@ -152,7 +178,7 @@ export function normalizeQuotaUsage(quota?: DailyQuotaUsage | null, now = new Da
   };
 }
 
-function normalizeDriveStore(data: DriveChannelData | null): DriveSyncState | null {
+export function normalizeDriveChannelData(data: DriveChannelData | null): DriveSyncState | null {
   if (!data) return null;
 
   const channels = Array.isArray(data.channels)
@@ -172,6 +198,7 @@ function normalizeDriveStore(data: DriveChannelData | null): DriveSyncState | nu
     viewUpdatedAt: data.viewUpdatedAt ?? data.updatedAt ?? EPOCH,
     updatesChannelIds: normalizeUpdatesChannelIds(data.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
     vocabs: normalizeVocabs(data.vocabs),
+    ignoredChannels: normalizeIgnoredChannels(data.ignoredChannels),
     quota: normalizeQuotaUsage(data.quota),
     updatedAt: data.updatedAt ?? new Date(0).toISOString(),
   };
@@ -377,7 +404,7 @@ async function readLatestBackupData(accessToken: string): Promise<DriveSyncState
   if (!latest?.id) return null;
 
   const data = await readFileJson<DriveChannelData>(accessToken, latest.id);
-  return normalizeDriveStore(data);
+  return normalizeDriveChannelData(data);
 }
 
 export async function listDriveBackups(accessToken: string): Promise<DriveBackupSummary[]> {
@@ -422,7 +449,7 @@ export async function readDriveBackupForDate(
   if (!selected) return null;
 
   const data = await readFileJson<DriveChannelData>(accessToken, selected.id);
-  const normalized = normalizeDriveStore(data);
+  const normalized = normalizeDriveChannelData(data);
   return normalized ? { ...normalized, backup: selected } : null;
 }
 
@@ -440,6 +467,7 @@ export async function restoreDriveBackup(
     viewUpdatedAt: backup.viewUpdatedAt,
     updatesChannelIds: backup.updatesChannelIds,
     vocabs: backup.vocabs,
+    ignoredChannels: backup.ignoredChannels,
     quota: backup.quota,
   });
 
@@ -450,7 +478,7 @@ export async function readDriveChannels(
   accessToken: string,
 ): Promise<DriveSyncState | null> {
   const existing = await readPrimaryDriveData(accessToken);
-  const normalized = normalizeDriveStore(existing?.data ?? null);
+  const normalized = normalizeDriveChannelData(existing?.data ?? null);
   if (normalized) return normalized;
 
   return readLatestBackupData(accessToken);
@@ -469,7 +497,25 @@ export async function deleteDriveChannels(accessToken: string): Promise<void> {
 export async function writeDriveChannels(accessToken: string, store: DriveWriteState): Promise<void> {
   const existing = await readPrimaryDriveData(accessToken);
   await ensureDailyBackup(accessToken, existing);
+  const body = buildDriveChannelData(store);
+  const json = JSON.stringify(body);
+  const nextNormalized = normalizeDriveChannelData(body);
 
+  if (existing?.data) {
+    const existingJson = JSON.stringify(existing.data);
+    if (existingJson !== json) {
+      await createSnapshotBackup(accessToken, existing.data);
+    }
+  }
+
+  await uploadJsonFile(accessToken, FILE_NAME, json, { fileId: existing?.id, parents: [SPACE] });
+
+  if (!existing?.data || JSON.stringify(normalizeDriveChannelData(existing.data)) !== JSON.stringify(nextNormalized)) {
+    await createSnapshotBackup(accessToken, body);
+  }
+}
+
+export function buildDriveChannelData(store: DriveWriteState): DriveChannelData {
   const normalizedChannels = dedupeChannels(store.channels);
   const normalizedSpaces = dedupeSpaces([
     DEFAULT_CHANNEL_SPACE,
@@ -487,24 +533,11 @@ export async function writeDriveChannels(accessToken: string, store: DriveWriteS
     viewUpdatedAt,
     updatesChannelIds: normalizeUpdatesChannelIds(store.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
     vocabs: normalizeVocabs(store.vocabs),
+    ignoredChannels: normalizeIgnoredChannels(store.ignoredChannels),
     quota: normalizedQuota,
     updatedAt: new Date().toISOString(),
   };
-  const json = JSON.stringify(body);
-  const nextNormalized = normalizeDriveStore(body);
-
-  if (existing?.data) {
-    const existingJson = JSON.stringify(existing.data);
-    if (existingJson !== json) {
-      await createSnapshotBackup(accessToken, existing.data);
-    }
-  }
-
-  await uploadJsonFile(accessToken, FILE_NAME, json, { fileId: existing?.id, parents: [SPACE] });
-
-  if (!existing?.data || JSON.stringify(normalizeDriveStore(existing.data)) !== JSON.stringify(nextNormalized)) {
-    await createSnapshotBackup(accessToken, body);
-  }
+  return body;
 }
 
 export async function recordDriveQuotaUsage(
@@ -517,6 +550,7 @@ export async function recordDriveQuotaUsage(
     viewUpdatedAt: EPOCH,
     updatesChannelIds: [],
     vocabs: [],
+    ignoredChannels: [],
   },
 ): Promise<DailyQuotaUsage> {
   const normalizedUnits = Math.max(0, Math.ceil(units));
@@ -529,6 +563,7 @@ export async function recordDriveQuotaUsage(
         viewUpdatedAt: existing.viewUpdatedAt,
         updatesChannelIds: existing.updatesChannelIds,
         vocabs: existing.vocabs,
+        ignoredChannels: existing.ignoredChannels,
       }
     : fallbackStore;
   const quota = normalizeQuotaUsage(existing?.quota);
@@ -545,6 +580,7 @@ export async function recordDriveQuotaUsage(
     viewUpdatedAt: baseStore.viewUpdatedAt,
     updatesChannelIds: baseStore.updatesChannelIds,
     vocabs: baseStore.vocabs,
+    ignoredChannels: baseStore.ignoredChannels,
     quota: nextQuota,
   });
 

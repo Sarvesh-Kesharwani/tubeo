@@ -17,6 +17,18 @@ export interface ChannelPreference {
   space: string;
 }
 
+export interface DiscoveredChannel {
+  id: string;
+  title: string;
+  thumbnail: string;
+  description?: string;
+  ignoredAt?: string;
+  subscriberCount?: number;
+  viewCount?: number;
+  videoCount?: number;
+  country?: string;
+}
+
 export interface MixedFeedViewPreferences {
   range: TimeRange;
   media: MediaFilter;
@@ -58,6 +70,7 @@ export interface ChannelPreferenceStore {
   viewUpdatedAt: string;
   updatesChannelIds: string[];
   vocabs: VocabItem[];
+  ignoredChannels: DiscoveredChannel[];
 }
 
 export interface DailyQuotaUsage {

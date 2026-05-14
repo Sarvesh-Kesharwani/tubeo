@@ -6,6 +6,7 @@ import {
   vocabIdFromWord,
   type ChannelPreference,
   type ChannelPreferenceStore,
+  type DiscoveredChannel,
   type ViewPreferences,
   type VocabItem,
   type VocabMeaningStatus,
@@ -86,6 +87,30 @@ function normalizeVocabs(value: VocabItem[] | undefined): VocabItem[] {
   return out;
 }
 
+function normalizeIgnoredChannels(value: DiscoveredChannel[] | undefined): DiscoveredChannel[] {
+  const seen = new Set<string>();
+  const out: DiscoveredChannel[] = [];
+
+  for (const item of value ?? []) {
+    const id = item?.id?.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      title: item.title?.trim() || id,
+      thumbnail: item.thumbnail || '',
+      description: item.description || '',
+      ignoredAt: item.ignoredAt || new Date().toISOString(),
+      subscriberCount: typeof item.subscriberCount === 'number' ? item.subscriberCount : undefined,
+      viewCount: typeof item.viewCount === 'number' ? item.viewCount : undefined,
+      videoCount: typeof item.videoCount === 'number' ? item.videoCount : undefined,
+      country: item.country || undefined,
+    });
+  }
+
+  return out;
+}
+
 function normalizeStore(store: ChannelPreferenceStore): ChannelPreferenceStore {
   const channels = dedupePreferences(store.channels);
   const spaces = dedupeSpaces([
@@ -97,8 +122,9 @@ function normalizeStore(store: ChannelPreferenceStore): ChannelPreferenceStore {
   const viewUpdatedAt = store.viewUpdatedAt || EPOCH;
   const updatesChannelIds = normalizeUpdatesChannelIds(store.updatesChannelIds, channels.map((channel) => channel.id));
   const vocabs = normalizeVocabs(store.vocabs);
+  const ignoredChannels = normalizeIgnoredChannels(store.ignoredChannels);
 
-  return { channels, spaces, view, viewUpdatedAt, updatesChannelIds, vocabs };
+  return { channels, spaces, view, viewUpdatedAt, updatesChannelIds, vocabs, ignoredChannels };
 }
 
 function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
@@ -111,6 +137,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       viewUpdatedAt: EPOCH,
       updatesChannelIds: [],
       vocabs: [],
+      ignoredChannels: [],
     };
   }
 
@@ -126,6 +153,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       viewUpdatedAt: EPOCH,
       updatesChannelIds: [],
       vocabs: [],
+      ignoredChannels: [],
     });
   }
 
@@ -138,6 +166,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
           viewUpdatedAt?: string;
           updatesChannelIds?: string[];
           vocabs?: VocabItem[];
+          ignoredChannels?: DiscoveredChannel[];
         }
       | Array<{ id?: string; space?: string }>
       | null;
@@ -159,6 +188,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       viewUpdatedAt,
       updatesChannelIds: Array.isArray(parsed) ? [] : parsed?.updatesChannelIds ?? [],
       vocabs: Array.isArray(parsed) ? [] : parsed?.vocabs ?? [],
+      ignoredChannels: Array.isArray(parsed) ? [] : parsed?.ignoredChannels ?? [],
     });
   } catch {
     return {
@@ -168,6 +198,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       viewUpdatedAt: EPOCH,
       updatesChannelIds: [],
       vocabs: [],
+      ignoredChannels: [],
     };
   }
 }
@@ -295,6 +326,7 @@ export async function setCookieChannelPreferences(channels: ChannelPreference[])
     viewUpdatedAt: existing.viewUpdatedAt,
     updatesChannelIds: existing.updatesChannelIds,
     vocabs: existing.vocabs,
+    ignoredChannels: existing.ignoredChannels,
   });
 }
 
@@ -307,6 +339,7 @@ export async function setCookieChannelSpaces(spaces: string[]): Promise<void> {
     viewUpdatedAt: existing.viewUpdatedAt,
     updatesChannelIds: existing.updatesChannelIds,
     vocabs: existing.vocabs,
+    ignoredChannels: existing.ignoredChannels,
   });
 }
 
@@ -319,6 +352,7 @@ export async function setCookieViewPreferences(view: ViewPreferences, viewUpdate
     viewUpdatedAt,
     updatesChannelIds: existing.updatesChannelIds,
     vocabs: existing.vocabs,
+    ignoredChannels: existing.ignoredChannels,
   });
 }
 

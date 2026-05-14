@@ -66,12 +66,11 @@ function wasPulledRecently() {
 
 export function SyncButton() {
   const router = useRouter();
-  const cached = readSyncCache();
-  const [state, setState] = useState<SyncState>(cached?.state ?? 'loading');
-  const [lastSynced, setLastSynced] = useState<string | null>(cached?.lastSynced ?? null);
+  const [state, setState] = useState<SyncState>('loading');
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
   const syncingRef = useRef(false);
   const checkingRef = useRef(false);
-  const lastCheckRef = useRef(cached?.checkedAt ?? 0);
+  const lastCheckRef = useRef(0);
   const resumeRef = useRef(0);
   const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -140,6 +139,13 @@ export function SyncButton() {
 
   // Resolve local filters against Drive once per fresh login window, not on every tab click.
   useEffect(() => {
+    const cached = readSyncCache();
+    if (cached) {
+      setState(cached.state);
+      setLastSynced(cached.lastSynced);
+      lastCheckRef.current = cached.checkedAt;
+    }
+
     if (wasPulledRecently()) {
       void checkSync(false);
       return;

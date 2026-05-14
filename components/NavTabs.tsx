@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 const TABS = [
   { href: '/', label: 'Mixed', emoji: 'TV' },
   { href: '/channels', label: 'Channels', emoji: 'CH' },
+  { href: '/discover', label: 'Discover', emoji: 'SR' },
   { href: '/updates', label: 'Updates', emoji: 'AM' },
   { href: '/videos', label: 'Videos', emoji: 'WL' },
   { href: '/vocab', label: 'Vocab', emoji: 'AZ' },

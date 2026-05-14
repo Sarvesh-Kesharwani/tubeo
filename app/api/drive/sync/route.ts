@@ -1,4 +1,3 @@
-import { readDriveChannels, writeDriveChannels } from '@/lib/drive';
 import {
   getCookieChannelSyncMeta,
   getCookieChannelStore,
@@ -9,6 +8,7 @@ import {
   setCookieChannelStore,
 } from '@/lib/channels-cookie';
 import { getSession } from '@/lib/session';
+import { readUserSyncState, writeUserSyncState } from '@/lib/sync-store';
 import type { ChannelPreferenceStore } from '@/lib/types';
 import { mergeVocabs, sameVocabs } from '@/lib/vocab-sync';
 import { getEnvChannelIds } from '@/lib/whitelist';
@@ -21,7 +21,7 @@ function sameStringList(a: string[], b: string[]): boolean {
 // GET - read Drive, return sync state
 export async function GET() {
   const session = await getSession();
-  if (!session?.accessToken) {
+  if (!session?.user) {
     return Response.json({ error: 'Not signed in' }, { status: 401 });
   }
 
@@ -32,48 +32,59 @@ export async function GET() {
     viewUpdatedAt: new Date(0).toISOString(),
     updatesChannelIds: [],
     vocabs: [],
+    ignoredChannels: [],
   };
-  let driveData = null;
+  let remoteData = null;
+  let source = 'none';
   let localMeta = { updatedAt: null as string | null, dirty: false };
   try {
-    [cookieStore, driveData, localMeta] = await Promise.all([
+    const [cookie, remote, meta] = await Promise.all([
       getCookieChannelStore(),
-      readDriveChannels(session.accessToken),
+      readUserSyncState(session),
       getCookieChannelSyncMeta(),
     ]);
+    cookieStore = cookie;
+    remoteData = remote.state;
+    source = remote.source;
+    localMeta = meta;
   } catch {
-    return Response.json({ error: 'Failed to read Drive sync state' }, { status: 502 });
+    return Response.json({ error: 'Failed to read sync state' }, { status: 502 });
   }
 
-  const driveChannels = driveData?.channels ?? [];
-  const driveSpaces = driveData?.spaces ?? [];
+  const remoteChannels = remoteData?.channels ?? [];
+  const remoteSpaces = remoteData?.spaces ?? [];
   const envIds = getEnvChannelIds();
   const cookieOnly = cookieStore.channels.filter((channel) => !envIds.includes(channel.id));
   const syncedChannels =
-    cookieOnly.length === driveChannels.length &&
+    cookieOnly.length === remoteChannels.length &&
     cookieOnly.every((channel, index) =>
-      driveChannels[index]?.id === channel.id && driveChannels[index]?.space === channel.space,
+      remoteChannels[index]?.id === channel.id && remoteChannels[index]?.space === channel.space,
     );
   const syncedSpaces =
-    cookieStore.spaces.length === driveSpaces.length &&
-    cookieStore.spaces.every((space, index) => driveSpaces[index] === space);
-  const syncedView = sameViewPreferences(cookieStore.view, driveData?.view ?? cookieStore.view);
-  const syncedUpdates = sameStringList(cookieStore.updatesChannelIds, driveData?.updatesChannelIds ?? []);
-  const syncedVocabs = sameVocabs(cookieStore.vocabs, driveData?.vocabs ?? []);
+    cookieStore.spaces.length === remoteSpaces.length &&
+    cookieStore.spaces.every((space, index) => remoteSpaces[index] === space);
+  const syncedView = sameViewPreferences(cookieStore.view, remoteData?.view ?? cookieStore.view);
+  const syncedUpdates = sameStringList(cookieStore.updatesChannelIds, remoteData?.updatesChannelIds ?? []);
+  const syncedVocabs = sameVocabs(cookieStore.vocabs, remoteData?.vocabs ?? []);
+  const syncedIgnored = sameStringList(
+    cookieStore.ignoredChannels.map((channel) => channel.id),
+    (remoteData?.ignoredChannels ?? []).map((channel) => channel.id),
+  );
 
   return Response.json({
-    driveIds: driveChannels.map((channel) => channel.id),
+    driveIds: remoteChannels.map((channel) => channel.id),
     cookieIds: cookieStore.channels.map((channel) => channel.id),
     initialized: await hasDriveSyncHydrated(),
-    synced: syncedChannels && syncedSpaces && syncedView && syncedUpdates && syncedVocabs && !localMeta.dirty,
-    updatedAt: driveData?.updatedAt ?? null,
+    synced: syncedChannels && syncedSpaces && syncedView && syncedUpdates && syncedVocabs && syncedIgnored && !localMeta.dirty,
+    updatedAt: remoteData?.updatedAt ?? null,
+    source,
   });
 }
 
 // POST /api/drive/sync - push local cookie channels to Drive (manual sync by user)
 export async function POST() {
   const session = await getSession();
-  if (!session?.accessToken) {
+  if (!session?.user) {
     return Response.json({ error: 'Not signed in' }, { status: 401 });
   }
 
@@ -85,45 +96,48 @@ export async function POST() {
   const localView = cookieStore.view;
 
   try {
-    const driveData = await readDriveChannels(session.accessToken);
+    const remote = await readUserSyncState(session);
+    const remoteData = remote.state;
 
-    if (driveData && !localMeta.dirty) {
-      const driveOnly = driveData.channels.filter((channel) => !envIds.includes(channel.id));
-      const mergedVocabs = mergeVocabs(cookieStore.vocabs, driveData.vocabs);
-      const hadLocalVocabExtras = !sameVocabs(mergedVocabs, driveData.vocabs);
+    if (remoteData && !localMeta.dirty) {
+      const remoteOnly = remoteData.channels.filter((channel) => !envIds.includes(channel.id));
+      const mergedVocabs = mergeVocabs(cookieStore.vocabs, remoteData.vocabs);
+      const hadLocalVocabExtras = !sameVocabs(mergedVocabs, remoteData.vocabs);
 
       const replacedLocal =
-        cookieOnly.length !== driveOnly.length ||
+        cookieOnly.length !== remoteOnly.length ||
         cookieOnly.some((channel, index) =>
-          driveOnly[index]?.id !== channel.id || driveOnly[index]?.space !== channel.space,
+          remoteOnly[index]?.id !== channel.id || remoteOnly[index]?.space !== channel.space,
         ) ||
-        localSpaces.length !== driveData.spaces.length ||
-        localSpaces.some((space, index) => driveData.spaces[index] !== space) ||
-        !sameViewPreferences(localView, driveData.view) ||
-        !sameStringList(cookieStore.updatesChannelIds, driveData.updatesChannelIds) ||
+        localSpaces.length !== remoteData.spaces.length ||
+        localSpaces.some((space, index) => remoteData.spaces[index] !== space) ||
+        !sameViewPreferences(localView, remoteData.view) ||
+        !sameStringList(cookieStore.updatesChannelIds, remoteData.updatesChannelIds) ||
         cookieStore.vocabs.length !== mergedVocabs.length;
 
       await setCookieChannelStore({
-        channels: driveOnly,
-        spaces: driveData.spaces,
-        view: driveData.view,
-        viewUpdatedAt: driveData.viewUpdatedAt,
-        updatesChannelIds: driveData.updatesChannelIds,
+        channels: remoteOnly,
+        spaces: remoteData.spaces,
+        view: remoteData.view,
+        viewUpdatedAt: remoteData.viewUpdatedAt,
+        updatesChannelIds: remoteData.updatesChannelIds,
         vocabs: mergedVocabs,
+        ignoredChannels: remoteData.ignoredChannels,
       });
 
-      let updatedAt = driveData.updatedAt;
+      let updatedAt = remoteData.updatedAt;
       if (hadLocalVocabExtras) {
         try {
           const syncedAt = new Date().toISOString();
-          await writeDriveChannels(session.accessToken, {
-            channels: driveOnly,
-            spaces: driveData.spaces,
-            view: driveData.view,
-            viewUpdatedAt: driveData.viewUpdatedAt,
-            updatesChannelIds: driveData.updatesChannelIds,
+          await writeUserSyncState(session, {
+            channels: remoteOnly,
+            spaces: remoteData.spaces,
+            view: remoteData.view,
+            viewUpdatedAt: remoteData.viewUpdatedAt,
+            updatesChannelIds: remoteData.updatesChannelIds,
             vocabs: mergedVocabs,
-            quota: driveData.quota,
+            ignoredChannels: remoteData.ignoredChannels,
+            quota: remoteData.quota,
           });
           updatedAt = syncedAt;
           await markCookieChannelStoreSynced(syncedAt);
@@ -131,7 +145,7 @@ export async function POST() {
           await markCookieChannelStoreDirty();
         }
       } else {
-        await markCookieChannelStoreSynced(driveData.updatedAt);
+        await markCookieChannelStoreSynced(remoteData.updatedAt);
       }
       await markDriveSyncHydrated();
 
@@ -141,19 +155,21 @@ export async function POST() {
         driveWins: true,
         replacedLocal,
         updatedAt,
-        channelIds: driveOnly.map((channel) => channel.id),
+        source: remote.source,
+        channelIds: remoteOnly.map((channel) => channel.id),
       });
     }
 
     const syncedAt = new Date().toISOString();
-    await writeDriveChannels(session.accessToken, {
+    const written = await writeUserSyncState(session, {
       channels: cookieOnly,
       spaces: localSpaces,
       view: localView,
       viewUpdatedAt: cookieStore.viewUpdatedAt,
       updatesChannelIds: cookieStore.updatesChannelIds,
       vocabs: cookieStore.vocabs,
-      quota: driveData?.quota,
+      ignoredChannels: cookieStore.ignoredChannels,
+      quota: remoteData?.quota,
     });
     await markCookieChannelStoreSynced(syncedAt);
     await markDriveSyncHydrated();
@@ -163,42 +179,48 @@ export async function POST() {
       initialized: true,
       seededFromLocal: true,
       updatedAt: syncedAt,
+      source: written.source,
+      driveBackupOk: written.driveBackupOk,
       channelIds: cookieOnly.map((channel) => channel.id),
     });
   } catch {
-    return Response.json({ error: 'Failed to write Drive sync state' }, { status: 502 });
+    return Response.json({ error: 'Failed to write sync state' }, { status: 502 });
   }
 }
 
 // PUT /api/drive/sync - pull Drive channels into cookie (called on login, Drive wins)
 export async function PUT() {
   const session = await getSession();
-  if (!session?.accessToken) {
+  if (!session?.user) {
     return Response.json({ error: 'Not signed in' }, { status: 401 });
   }
 
-  let driveData = null;
+  let remoteData = null;
+  let source = 'none';
   try {
-    driveData = await readDriveChannels(session.accessToken);
+    const remote = await readUserSyncState(session);
+    remoteData = remote.state;
+    source = remote.source;
   } catch {
-    return Response.json({ error: 'Failed to pull channels from Drive' }, { status: 502 });
+    return Response.json({ error: 'Failed to pull channels from sync store' }, { status: 502 });
   }
 
-  if (!driveData) {
+  if (!remoteData) {
     await markDriveSyncHydrated();
     return Response.json({ ok: true, initialized: true, channelIds: [] });
   }
 
   const envIds = getEnvChannelIds();
   await setCookieChannelStore({
-    channels: driveData.channels.filter((channel) => !envIds.includes(channel.id)),
-    spaces: driveData.spaces,
-    view: driveData.view,
-    viewUpdatedAt: driveData.viewUpdatedAt,
-    updatesChannelIds: driveData.updatesChannelIds,
-    vocabs: driveData.vocabs,
+    channels: remoteData.channels.filter((channel) => !envIds.includes(channel.id)),
+    spaces: remoteData.spaces,
+    view: remoteData.view,
+    viewUpdatedAt: remoteData.viewUpdatedAt,
+    updatesChannelIds: remoteData.updatesChannelIds,
+    vocabs: remoteData.vocabs,
+    ignoredChannels: remoteData.ignoredChannels,
   });
-  await markCookieChannelStoreSynced(driveData.updatedAt);
+  await markCookieChannelStoreSynced(remoteData.updatedAt);
   await markDriveSyncHydrated();
-  return Response.json({ ok: true, initialized: true, channelIds: driveData.channels.map((channel) => channel.id) });
+  return Response.json({ ok: true, initialized: true, source, channelIds: remoteData.channels.map((channel) => channel.id) });
 }

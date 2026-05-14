@@ -11,6 +11,7 @@ import {
   type DriveBackupSummary,
 } from '@/lib/drive';
 import { getSession } from '@/lib/session';
+import { writeUserSyncState } from '@/lib/sync-store';
 import { getEnvChannelIds } from '@/lib/whitelist';
 
 function pickBestBackup(
@@ -75,6 +76,16 @@ export async function POST(req: Request) {
 
   const envIds = getEnvChannelIds();
   const restoredAt = new Date().toISOString();
+  await writeUserSyncState(session, {
+    channels: restored.channels,
+    spaces: restored.spaces,
+    view: restored.view,
+    viewUpdatedAt: restored.viewUpdatedAt,
+    updatesChannelIds: restored.updatesChannelIds,
+    vocabs: restored.vocabs,
+    ignoredChannels: restored.ignoredChannels,
+    quota: restored.quota,
+  });
   await setCookieChannelStore({
     channels: restored.channels.filter((channel) => !envIds.includes(channel.id)),
     spaces: restored.spaces,
@@ -82,6 +93,7 @@ export async function POST(req: Request) {
     viewUpdatedAt: restored.viewUpdatedAt,
     updatesChannelIds: restored.updatesChannelIds,
     vocabs: restored.vocabs,
+    ignoredChannels: restored.ignoredChannels,
   });
   await markCookieChannelStoreSynced(restoredAt);
   await markDriveSyncHydrated();
@@ -102,6 +114,7 @@ export async function POST(req: Request) {
       spaces: restored.spaces.length,
       vocabs: restored.vocabs.length,
       updatesChannelIds: restored.updatesChannelIds.length,
+      ignoredChannels: restored.ignoredChannels.length,
     },
   });
 }
