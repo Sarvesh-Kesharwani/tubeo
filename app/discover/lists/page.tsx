@@ -3,6 +3,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { getCookieChannelStore } from '@/lib/channels-cookie';
 import { getSession } from '@/lib/session';
 import { readUserSyncState } from '@/lib/sync-store';
+import { getChannels } from '@/lib/youtube';
 
 export default async function DiscoverListsPage() {
   const session = await getSession();
@@ -18,6 +19,35 @@ export default async function DiscoverListsPage() {
           titleById.set(channel.id, { title: channel.title, thumbnail: channel.thumbnail });
         }
       }
+    }
+  }
+
+  for (const channel of store.ignoredChannels) {
+    if (channel.thumbnail && !titleById.has(channel.id)) {
+      titleById.set(channel.id, { title: channel.title, thumbnail: channel.thumbnail });
+    }
+  }
+
+  const missingIds = new Set<string>();
+  for (const channel of store.channels) {
+    if (!titleById.get(channel.id)?.thumbnail) missingIds.add(channel.id);
+  }
+  for (const channel of store.ignoredChannels) {
+    if (!channel.thumbnail && !titleById.get(channel.id)?.thumbnail) missingIds.add(channel.id);
+  }
+
+  if (session?.user && missingIds.size > 0) {
+    try {
+      const fetched = await getChannels([...missingIds]);
+      for (const channel of fetched) {
+        const existing = titleById.get(channel.id);
+        titleById.set(channel.id, {
+          title: existing?.title || channel.title || channel.id,
+          thumbnail: channel.thumbnail || existing?.thumbnail || '',
+        });
+      }
+    } catch {
+      // best-effort enrichment; render with placeholders if fetch fails
     }
   }
 
@@ -57,6 +87,7 @@ export default async function DiscoverListsPage() {
             <div className="space-y-2">
               {store.channels.map((channel) => {
                 const meta = titleById.get(channel.id);
+                const title = meta?.title || channel.id;
                 return (
                   <div key={channel.id} className="rounded-2xl border-2 border-duo-border bg-duo-soft/50 p-3">
                     <div className="flex items-center gap-3">
@@ -66,7 +97,7 @@ export default async function DiscoverListsPage() {
                         <div className="h-10 w-10 rounded-full bg-white" />
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-extrabold text-duo-ink">{meta?.title ?? channel.id}</p>
+                        <p className="truncate text-sm font-extrabold text-duo-ink">{title}</p>
                         <p className="truncate text-xs font-bold text-duo-ink/45">{channel.space}</p>
                       </div>
                     </div>
@@ -88,21 +119,25 @@ export default async function DiscoverListsPage() {
             </p>
           ) : (
             <div className="space-y-2">
-              {store.ignoredChannels.map((channel) => (
-                <div key={channel.id} className="rounded-2xl border-2 border-duo-border bg-duo-soft/50 p-3">
-                  <div className="flex items-center gap-3">
-                    {channel.thumbnail ? (
-                      <img src={channel.thumbnail} alt="" className="h-10 w-10 rounded-full object-cover" />
-                    ) : (
-                      <div className="h-10 w-10 rounded-full bg-white" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-extrabold text-duo-ink">{channel.title}</p>
-                      <p className="truncate text-xs font-bold text-duo-ink/45">{channel.id}</p>
+              {store.ignoredChannels.map((channel) => {
+                const meta = titleById.get(channel.id);
+                const thumbnail = channel.thumbnail || meta?.thumbnail;
+                const title = meta?.title || channel.title || channel.id;
+                return (
+                  <div key={channel.id} className="rounded-2xl border-2 border-duo-border bg-duo-soft/50 p-3">
+                    <div className="flex items-center gap-3">
+                      {thumbnail ? (
+                        <img src={thumbnail} alt="" className="h-10 w-10 rounded-full object-cover" />
+                      ) : (
+                        <div className="h-10 w-10 rounded-full bg-white" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-extrabold text-duo-ink">{title}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
