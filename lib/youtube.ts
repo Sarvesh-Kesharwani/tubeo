@@ -142,6 +142,7 @@ export interface ChannelSearchParams {
   topicId?: string;
   pageToken?: string;
   ignoredIds?: string[];
+  existingIds?: string[];
 }
 
 export interface ChannelSearchResult {
@@ -151,6 +152,7 @@ export interface ChannelSearchResult {
   totalResults?: number;
   resultsPerPage?: number;
   hiddenIgnored: number;
+  hiddenSelected: number;
   quotaUnits: number;
 }
 
@@ -389,10 +391,11 @@ export function sortDiscoveredChannelsByStats(channels: DiscoveredChannel[]): Di
 export async function searchYouTubeChannels(params: ChannelSearchParams): Promise<ChannelSearchResult> {
   const q = params.q.trim();
   if (!q) {
-    return { channels: [], hiddenIgnored: 0, quotaUnits: 0 };
+    return { channels: [], hiddenIgnored: 0, hiddenSelected: 0, quotaUnits: 0 };
   }
 
   const ignoredIds = new Set(params.ignoredIds ?? []);
+  const existingIds = new Set(params.existingIds ?? []);
   const out = new Map<string, DiscoveredChannel>();
   let pageToken = params.pageToken?.trim() || undefined;
   let nextPageToken: string | undefined;
@@ -400,6 +403,7 @@ export async function searchYouTubeChannels(params: ChannelSearchParams): Promis
   let totalResults: number | undefined;
   let resultsPerPage: number | undefined;
   let hiddenIgnored = 0;
+  let hiddenSelected = 0;
   let quotaUnits = 0;
 
   for (let page = 0; page < 5 && out.size < 50; page++) {
@@ -449,6 +453,10 @@ export async function searchYouTubeChannels(params: ChannelSearchParams): Promis
         hiddenIgnored += 1;
         continue;
       }
+      if (existingIds.has(channel.id)) {
+        hiddenSelected += 1;
+        continue;
+      }
       if (out.has(channel.id)) continue;
       out.set(channel.id, channel);
       if (out.size >= 50) break;
@@ -482,6 +490,7 @@ export async function searchYouTubeChannels(params: ChannelSearchParams): Promis
     totalResults,
     resultsPerPage,
     hiddenIgnored,
+    hiddenSelected,
     quotaUnits,
   };
 }

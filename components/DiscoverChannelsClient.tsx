@@ -30,6 +30,7 @@ type SearchState = {
   pageNumber: number;
   totalPagesCached: number;
   hiddenIgnored: number;
+  hiddenSelected: number;
   quotaUnits: number;
   error?: string;
 };
@@ -42,6 +43,7 @@ const EMPTY_STATE: SearchState = {
   pageNumber: 1,
   totalPagesCached: 0,
   hiddenIgnored: 0,
+  hiddenSelected: 0,
   quotaUnits: 0,
 };
 
@@ -102,9 +104,13 @@ function stateFromSearch(
   searches: DiscoverSearchRecord[],
   activeSearchId: string | undefined,
   ignoredChannels: DiscoveredChannel[],
+  existingIds: string[] = [],
 ): SearchState {
   const active = searches.find((search) => search.id === activeSearchId) ?? searches[0];
   const activePage = active?.pages.find((page) => page.pageNumber === active.activePage) ?? active?.pages[0];
+  const existingSet = new Set(existingIds);
+  const rawChannels = activePage?.channels ?? [];
+  const visibleChannels = rawChannels.filter((channel) => !existingSet.has(channel.id));
 
   return {
     ...EMPTY_STATE,
@@ -112,11 +118,13 @@ function stateFromSearch(
     filters: active?.filters,
     searches,
     ignoredChannels,
-    channels: activePage?.channels ?? [],
+    existingIds,
+    channels: visibleChannels,
     nextPageToken: activePage?.nextPageToken,
     pageNumber: activePage?.pageNumber ?? 1,
     totalPagesCached: active?.pages.length ?? 0,
     hiddenIgnored: activePage?.hiddenIgnored ?? 0,
+    hiddenSelected: rawChannels.length - visibleChannels.length,
     quotaUnits: activePage?.quotaUnits ?? 0,
   };
 }
@@ -126,14 +134,16 @@ export function DiscoverChannelsClient({
   initialSearches,
   activeSearchId,
   initialDraft,
+  initialExistingIds,
 }: {
   initialIgnored: DiscoveredChannel[];
   initialSearches: DiscoverSearchRecord[];
   activeSearchId?: string;
   initialDraft?: DiscoverSearchFilters;
+  initialExistingIds?: string[];
 }) {
   const router = useRouter();
-  const initialState = stateFromSearch(initialSearches, activeSearchId, initialIgnored);
+  const initialState = stateFromSearch(initialSearches, activeSearchId, initialIgnored, initialExistingIds ?? []);
   const initialFilters = initialDraft?.q || initialDraft?.order ? initialDraft : initialState.filters;
   const [query, setQuery] = useState(initialFilters?.q ?? '');
   const [order, setOrder] = useState(initialFilters?.order || 'relevance');
@@ -212,6 +222,7 @@ export function DiscoverChannelsClient({
       pageNumber: data.pageNumber ?? 1,
       totalPagesCached: data.totalPagesCached ?? 0,
       hiddenIgnored: data.hiddenIgnored ?? 0,
+      hiddenSelected: data.hiddenSelected ?? 0,
       quotaUnits: data.quotaUnits ?? 0,
     });
   }
@@ -271,6 +282,8 @@ export function DiscoverChannelsClient({
           ...current,
           existingIds: [...new Set([...current.existingIds, channel.id])],
           ignoredChannels: current.ignoredChannels.filter((item) => item.id !== channel.id),
+          channels: current.channels.filter((item) => item.id !== channel.id),
+          hiddenSelected: current.hiddenSelected + 1,
         }));
       } else {
         setState((current) => ({
@@ -447,6 +460,7 @@ export function DiscoverChannelsClient({
         <div className="flex flex-wrap gap-2 text-xs font-extrabold text-duo-ink/60">
           <span className="chip cursor-default">Page {state.pageNumber} of cached {Math.max(1, state.totalPagesCached)}</span>
           <span className="chip cursor-default">{state.hiddenIgnored} ignored hidden</span>
+          <span className="chip cursor-default">{state.hiddenSelected} already added</span>
           <span className="chip cursor-default">{state.quotaUnits} quota units</span>
         </div>
         <div

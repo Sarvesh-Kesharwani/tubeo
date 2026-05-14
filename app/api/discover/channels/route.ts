@@ -95,16 +95,25 @@ function responsePayload(
   search: DiscoverSearchRecord | null,
   page: DiscoverSearchPage | null,
   existingIds: string[],
+  hiddenSelectedOverride?: number,
 ) {
+  const existingSet = new Set(existingIds);
+  const rawChannels = page?.channels ?? [];
+  const visibleChannels = rawChannels.filter((channel) => !existingSet.has(channel.id));
+  const hiddenSelected =
+    typeof hiddenSelectedOverride === 'number'
+      ? hiddenSelectedOverride
+      : rawChannels.length - visibleChannels.length;
   return Response.json({
     ok: true,
     searchId: search?.id,
     filters: search?.filters,
     pageNumber: page?.pageNumber ?? 1,
     totalPagesCached: search?.pages.length ?? 0,
-    channels: page?.channels ?? [],
+    channels: visibleChannels,
     nextPageToken: page?.nextPageToken,
     hiddenIgnored: page?.hiddenIgnored ?? 0,
+    hiddenSelected,
     quotaUnits: page?.quotaUnits ?? 0,
     existingIds,
     ignoredChannels: store.ignoredChannels,
@@ -158,6 +167,7 @@ export async function GET(req: Request) {
     let pages = [...search.pages];
     let currentPage = pages.find((page) => page.pageNumber === requestedPage) ?? null;
     let quotaTotal = 0;
+    let hiddenSelectedFromFetch: number | undefined;
 
     while (!currentPage) {
       const lastPage = pages[pages.length - 1];
@@ -176,8 +186,10 @@ export async function GET(req: Request) {
         topicId: search.filters.topicId || undefined,
         pageToken: lastPage?.nextPageToken,
         ignoredIds,
+        existingIds,
       });
       quotaTotal += result.quotaUnits;
+      hiddenSelectedFromFetch = (hiddenSelectedFromFetch ?? 0) + result.hiddenSelected;
 
       const page: DiscoverSearchPage = {
         pageNumber: nextPageNumber,
@@ -207,6 +219,7 @@ export async function GET(req: Request) {
       updatedSearch,
       currentPage ? { ...currentPage, quotaUnits: quotaTotal || currentPage.quotaUnits } : null,
       existingIds,
+      hiddenSelectedFromFetch,
     );
   } catch (error) {
     return Response.json(

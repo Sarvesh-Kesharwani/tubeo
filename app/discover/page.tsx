@@ -38,6 +38,7 @@ export default async function DiscoverPage() {
         initialSearches={initialSearches}
         activeSearchId={activeSearchId}
         initialDraft={draft}
+        initialExistingIds={store.channels.map((channel) => channel.id)}
       />
     </div>
   );
