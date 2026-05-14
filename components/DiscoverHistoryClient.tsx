@@ -41,7 +41,39 @@ export function DiscoverHistoryClient({
   const [statsById, setStatsById] = useState<
     Record<string, { subscriberCount?: number; viewCount?: number; videoCount?: number; country?: string }>
   >({});
+  const [deletingSearchId, setDeletingSearchId] = useState<string | null>(null);
+  const [deletedSearchIds, setDeletedSearchIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+
+  async function deleteSearch(searchId: string, label: string) {
+    if (!window.confirm(`Delete saved search "${label || searchId}"? This can't be undone.`)) {
+      return;
+    }
+    setDeletingSearchId(searchId);
+    setError(null);
+    try {
+      const response = await fetch('/api/settings/mutate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'deleteDiscoverSearch', searchId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        setError(data.error ?? 'Delete failed.');
+        return;
+      }
+      setDeletedSearchIds((current) => {
+        const next = new Set(current);
+        next.add(searchId);
+        return next;
+      });
+      router.refresh();
+    } catch {
+      setError('Delete failed.');
+    } finally {
+      setDeletingSearchId(null);
+    }
+  }
 
   const existingSet = useMemo(() => new Set(existingIds), [existingIds]);
   const ignoredSet = useMemo(() => new Set(ignoredIds), [ignoredIds]);
@@ -135,10 +167,12 @@ export function DiscoverHistoryClient({
     };
   }
 
+  const visibleSearches = searches.filter((search) => !deletedSearchIds.has(search.id));
+
   return (
     <div className="space-y-4">
       {error && <p className="text-sm font-extrabold text-red-500">{error}</p>}
-      {searches.map((search) => (
+      {visibleSearches.map((search) => (
         <details key={search.id} className="card p-4" open={search.id === activeSearchId}>
           <summary className="cursor-pointer list-none">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -152,9 +186,24 @@ export function DiscoverHistoryClient({
                   ))}
                 </div>
               </div>
-              <div className="text-right text-xs font-extrabold text-duo-ink/50">
-                <p>{search.pages.length} pages</p>
-                <p>{new Date(search.updatedAt).toLocaleString()}</p>
+              <div className="flex flex-col items-end gap-2">
+                <div className="text-right text-xs font-extrabold text-duo-ink/50">
+                  <p>{search.pages.length} pages</p>
+                  <p>{new Date(search.updatedAt).toLocaleString()}</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-duo-ghost px-3 py-2 text-xs text-red-500"
+                  disabled={deletingSearchId === search.id}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void deleteSearch(search.id, search.filters.q);
+                  }}
+                  title="Delete this saved search"
+                >
+                  {deletingSearchId === search.id ? '...' : 'Delete'}
+                </button>
               </div>
             </div>
           </summary>

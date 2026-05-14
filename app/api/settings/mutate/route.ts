@@ -139,6 +139,8 @@ async function persistChannelStore(store: ChannelPreferenceStore): Promise<boole
       ignoredChannels: store.ignoredChannels,
       discoverSearches: store.discoverSearches,
       activeDiscoverSearchId: store.activeDiscoverSearchId,
+      discoverDraft: store.discoverDraft,
+      lastPagePath: store.lastPagePath,
       quota: driveData?.quota,
     });
     await markCookieChannelStoreSynced(syncedAt);
@@ -413,6 +415,27 @@ export async function POST(req: Request) {
         ignoredChannels: store.ignoredChannels.filter((item) => item.id !== channelId),
       });
       return ok({ success: channelId, synced });
+    }
+
+    if (type === 'deleteDiscoverSearch') {
+      const searchId = String(body.searchId ?? '').trim();
+      if (!searchId) return fail('Search ID missing.');
+
+      const store = await getCookieChannelStore();
+      const exists = store.discoverSearches.some((item) => item.id === searchId);
+      if (!exists) return fail('Search no longer exists.');
+
+      const nextSearches = store.discoverSearches.filter((item) => item.id !== searchId);
+      const nextActiveId =
+        store.activeDiscoverSearchId === searchId
+          ? nextSearches[0]?.id
+          : store.activeDiscoverSearchId;
+      const synced = await persistChannelStore({
+        ...store,
+        discoverSearches: nextSearches,
+        activeDiscoverSearchId: nextActiveId,
+      });
+      return ok({ success: searchId, synced });
     }
 
     if (type === 'addVocab') {
