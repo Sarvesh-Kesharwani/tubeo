@@ -20,7 +20,7 @@ function textResponse(body: string, status = 200): Response {
 }
 
 function verifySignature(rawBody: string, signature: string | null): boolean {
-  if (!APP_SECRET) return true;
+  if (!APP_SECRET) return process.env.NODE_ENV !== 'production';
   if (!signature?.startsWith('sha256=')) return false;
 
   const expected = createHmac('sha256', APP_SECRET).update(rawBody).digest('hex');
