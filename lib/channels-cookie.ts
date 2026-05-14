@@ -121,7 +121,7 @@ function normalizeDiscoverFilters(value: Partial<DiscoverSearchFilters> | undefi
     relevanceLanguage: value?.relevanceLanguage?.trim() ?? 'en',
     safeSearch: value?.safeSearch?.trim() || 'moderate',
     channelType: value?.channelType?.trim() || 'any',
-    topicId: value?.topicId?.trim() ?? '/m/07c1v',
+    topicId: value?.topicId?.trim() ?? '',
     publishedAfter: value?.publishedAfter?.trim() ?? '',
     publishedBefore: value?.publishedBefore?.trim() ?? '',
   };

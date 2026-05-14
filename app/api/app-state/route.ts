@@ -25,7 +25,7 @@ function normalizeDiscoverDraft(value: unknown): DiscoverSearchFilters | undefin
     relevanceLanguage: item.relevanceLanguage?.trim() ?? 'en',
     safeSearch: item.safeSearch?.trim() || 'moderate',
     channelType: item.channelType?.trim() || 'any',
-    topicId: item.topicId?.trim() ?? '/m/07c1v',
+    topicId: item.topicId?.trim() ?? '',
     publishedAfter: item.publishedAfter?.trim() ?? '',
     publishedBefore: item.publishedBefore?.trim() ?? '',
   };

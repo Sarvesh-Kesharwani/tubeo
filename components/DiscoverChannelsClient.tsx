@@ -151,7 +151,7 @@ export function DiscoverChannelsClient({
   const [relevanceLanguage, setRelevanceLanguage] = useState(initialFilters?.relevanceLanguage ?? 'en');
   const [safeSearch, setSafeSearch] = useState(initialFilters?.safeSearch || 'moderate');
   const [channelType, setChannelType] = useState(initialFilters?.channelType || 'any');
-  const [topicId, setTopicId] = useState(initialFilters?.topicId ?? '/m/07c1v');
+  const [topicId, setTopicId] = useState(initialFilters?.topicId ?? '');
   const [publishedAfter, setPublishedAfter] = useState(initialFilters?.publishedAfter?.slice(0, 10) || '');
   const [publishedBefore, setPublishedBefore] = useState(initialFilters?.publishedBefore?.slice(0, 10) || '');
   const [pageDraft, setPageDraft] = useState(String(initialState.pageNumber));
