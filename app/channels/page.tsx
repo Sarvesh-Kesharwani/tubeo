@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { ChannelRow } from '@/components/ChannelRow';
 import { EmptyState } from '@/components/EmptyState';
+import { InstagramChannelRow } from '@/components/InstagramChannelRow';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { QuotaUsageTracker } from '@/components/QuotaUsageTracker';
 import { SpaceTabs } from '@/components/SpaceTabs';
@@ -10,6 +11,7 @@ import { getCookieViewPreferences } from '@/lib/channels-cookie';
 import { parseMediaFilter } from '@/lib/media';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
+import { DEFAULT_INSTAGRAM_CHANNEL, getDefaultInstagramChannelReels } from '@/lib/instagram';
 import { parseRange } from '@/lib/time';
 import { CHANNELS_OVERVIEW_SPACE, DEFAULT_CHANNEL_SPACE } from '@/lib/types';
 import { getChannelGroupedFeedWithQuota } from '@/lib/youtube';
@@ -86,11 +88,16 @@ async function Grouped({
 
   let groups;
   let quotaUnits = 0;
+  let instagramReels: Awaited<ReturnType<typeof getDefaultInstagramChannelReels>> = { reels: [] };
   try {
     const perChannel = range === 'all' ? 50 : 12;
-    const result = await getChannelGroupedFeedWithQuota(range, media, perChannel, now);
+    const [result, instagramResult] = await Promise.all([
+      getChannelGroupedFeedWithQuota(range, media, perChannel, now),
+      media === 'videos' ? Promise.resolve({ reels: [] }) : getDefaultInstagramChannelReels(5),
+    ]);
     groups = result.groups;
     quotaUnits = result.quota.refreshCost;
+    instagramReels = instagramResult;
   } catch (error) {
     return <EmptyState emoji="!" title="Couldn't load channels" description={(error as Error).message} />;
   }
@@ -141,6 +148,16 @@ async function Grouped({
       )}
       <ViewPreferenceTracker page="channels" range={range} media={media} space={activeSpaceValue} />
       <SpaceTabs activeSpace={activeSpaceValue} tabs={tabs} />
+
+      {(activeSpaceValue === CHANNELS_OVERVIEW_SPACE || activeSpaceValue === DEFAULT_CHANNEL_SPACE) && (
+        <InstagramChannelRow
+          title={DEFAULT_INSTAGRAM_CHANNEL.title}
+          url={DEFAULT_INSTAGRAM_CHANNEL.url}
+          reels={instagramReels.reels}
+          error={instagramReels.error}
+          now={now}
+        />
+      )}
 
       {activeSpaceValue === CHANNELS_OVERVIEW_SPACE ? (
         <div className="space-y-4">

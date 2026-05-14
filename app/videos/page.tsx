@@ -4,7 +4,9 @@ import {
   getCookieSavedVideos,
   getSavedVideoKind,
   hydrateSavedVideosFromDriveIfNeeded,
+  persistSavedVideos,
 } from '@/lib/saved-videos';
+import { readInstagramInboxSavedVideos } from '@/lib/instagram';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
 import { getVideosByIds } from '@/lib/youtube';
@@ -34,7 +36,17 @@ export default async function VideosPage() {
   }
 
   await hydrateSavedVideosFromDriveIfNeeded(session.accessToken);
-  const saved = await getCookieSavedVideos();
+  const [cookieSaved, inboxSaved] = await Promise.all([
+    getCookieSavedVideos(),
+    readInstagramInboxSavedVideos(),
+  ]);
+  const existingIds = new Set(cookieSaved.map((video) => video.id));
+  const newInboxSaved = inboxSaved.filter((video) => !existingIds.has(video.id));
+  const saved = newInboxSaved.length > 0 ? [...newInboxSaved, ...cookieSaved] : cookieSaved;
+
+  if (newInboxSaved.length > 0) {
+    await persistSavedVideos(saved, session.accessToken);
+  }
 
   const ytIds = saved.filter((video) => getSavedVideoKind(video) === 'youtube').map((video) => video.id);
   let videos: Video[] = [];

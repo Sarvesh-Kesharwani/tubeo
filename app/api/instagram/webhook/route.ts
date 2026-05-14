@@ -1,4 +1,8 @@
 import { createHmac, timingSafeEqual } from 'crypto';
+import {
+  appendInstagramInboxReels,
+  extractInstagramReelUrlsFromPayload,
+} from '@/lib/instagram';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -60,10 +64,22 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
   }
 
+  const reelUrls = extractInstagramReelUrlsFromPayload(body);
+  const result = await appendInstagramInboxReels(reelUrls);
+
   console.info('instagram_webhook_received', {
     receivedAt: new Date().toISOString(),
     hasBody: Boolean(body),
+    reelUrls: reelUrls.length,
+    added: result.added,
+    persisted: result.persisted,
   });
 
-  return Response.json({ ok: true });
+  return Response.json({
+    ok: true,
+    reels: reelUrls.length,
+    added: result.added,
+    total: result.total,
+    persisted: result.persisted,
+  });
 }
