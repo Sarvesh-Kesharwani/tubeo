@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import {
   appendInstagramInboxReels,
   extractInstagramReelUrlsFromPayload,
+  extractInstagramSenderIdsFromPayload,
+  sendInstagramMessage,
 } from '@/lib/instagram';
 
 export const dynamic = 'force-dynamic';
@@ -66,6 +68,22 @@ export async function POST(req: Request) {
 
   const reelUrls = extractInstagramReelUrlsFromPayload(body);
   const result = await appendInstagramInboxReels(reelUrls);
+  const senderIds = extractInstagramSenderIdsFromPayload(body);
+  const replyText =
+    reelUrls.length === 0
+      ? 'Send or forward an Instagram reel link to save it in Tubeo.'
+      : !result.persisted
+        ? 'I found the reel, but Tubeo could not save it yet. Try again in a minute.'
+        : result.added > 0
+          ? 'Added to Tubeo.'
+          : 'Already saved in Tubeo.';
+  const replyResults = await Promise.allSettled(
+    senderIds.map((senderId) => sendInstagramMessage(senderId, replyText)),
+  );
+  const repliesSent = replyResults.filter(
+    (reply): reply is PromiseFulfilledResult<boolean> =>
+      reply.status === 'fulfilled' && reply.value,
+  ).length;
 
   console.info('instagram_webhook_received', {
     receivedAt: new Date().toISOString(),
@@ -73,6 +91,8 @@ export async function POST(req: Request) {
     reelUrls: reelUrls.length,
     added: result.added,
     persisted: result.persisted,
+    senderIds: senderIds.length,
+    repliesSent,
   });
 
   return Response.json({
@@ -81,5 +101,6 @@ export async function POST(req: Request) {
     added: result.added,
     total: result.total,
     persisted: result.persisted,
+    repliesSent,
   });
 }

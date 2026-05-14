@@ -107,6 +107,19 @@ interface BusinessDiscoveryResponse {
   };
 }
 
+interface InstagramWebhookEntry {
+  messaging?: Array<{
+    sender?: {
+      id?: string;
+    };
+    message?: unknown;
+  }>;
+}
+
+interface InstagramWebhookPayload {
+  entry?: InstagramWebhookEntry[];
+}
+
 function supabaseConfig(): SupabaseConfig | null {
   const url = process.env.TUBEO_SUPABASE_URL?.trim();
   const key =
@@ -311,6 +324,23 @@ export function extractInstagramReelUrlsFromPayload(payload: unknown): string[] 
   return [...urls];
 }
 
+export function extractInstagramSenderIdsFromPayload(payload: unknown): string[] {
+  const ids = new Set<string>();
+  const entries = (payload as InstagramWebhookPayload | null)?.entry;
+  if (!Array.isArray(entries)) return [];
+
+  for (const entry of entries) {
+    if (!Array.isArray(entry?.messaging)) continue;
+    for (const event of entry.messaging) {
+      if (!event?.message) continue;
+      const id = event?.sender?.id?.trim();
+      if (id) ids.add(id);
+    }
+  }
+
+  return [...ids];
+}
+
 export async function appendInstagramInboxReels(
   urls: string[],
 ): Promise<{ added: number; total: number; persisted: boolean }> {
@@ -355,6 +385,46 @@ function graphConfig(): { token: string; userId: string; version: string } | nul
 
   if (!token || !userId) return null;
   return { token, userId, version };
+}
+
+export async function sendInstagramMessage(recipientId: string, text: string): Promise<boolean> {
+  const cfg = graphConfig();
+  const cleanRecipientId = recipientId.trim();
+  const cleanText = text.trim();
+
+  if (!cfg || !cleanRecipientId || !cleanText) return false;
+
+  const payload = {
+    recipient: { id: cleanRecipientId },
+    message: { text: cleanText.slice(0, 1000) },
+  };
+  const hosts = [
+    process.env.INSTAGRAM_MESSAGING_GRAPH_HOST?.trim() || 'graph.instagram.com',
+    'graph.facebook.com',
+  ].filter((host, index, all) => host && all.indexOf(host) === index);
+
+  for (const host of hosts) {
+    const res = await fetch(`https://${host}/${cfg.version}/${cfg.userId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cfg.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+
+    if (res.ok) return true;
+
+    const body = await res.text().catch(() => '');
+    console.warn('instagram_message_reply_failed', {
+      host,
+      status: res.status,
+      body: body.slice(0, 500),
+    });
+  }
+
+  return false;
 }
 
 function titleFromCaption(caption: string | undefined, fallback: string): string {
