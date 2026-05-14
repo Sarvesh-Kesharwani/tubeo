@@ -211,7 +211,10 @@ export async function GET(req: Request) {
       activePage: currentPage?.pageNumber ?? 1,
       updatedAt: new Date().toISOString(),
     };
-    const nextStore = upsertSearch(store, updatedSearch);
+    const nextStore: ChannelPreferenceStore = {
+      ...upsertSearch(store, updatedSearch),
+      discoverDraft: updatedSearch.filters,
+    };
     await persistStore(session, nextStore);
 
     return responsePayload(

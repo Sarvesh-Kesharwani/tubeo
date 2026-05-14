@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -168,34 +168,52 @@ export function DiscoverChannelsClient({
     setState((current) => ({ ...current, ignoredChannels: initialIgnored }));
   }, [initialIgnored]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void fetch('/api/app-state', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          discoverDraft: {
-            q: query.trim(),
-            order,
-            regionCode,
-            relevanceLanguage,
-            safeSearch,
-            channelType,
-            topicId,
-            publishedAfter,
-            publishedBefore,
-          },
-        }),
-        signal: controller.signal,
-      }).catch(() => undefined);
-    }, 700);
+  const currentDraft = useMemo(
+    () => ({
+      q: query.trim(),
+      order,
+      regionCode,
+      relevanceLanguage,
+      safeSearch,
+      channelType,
+      topicId,
+      publishedAfter,
+      publishedBefore,
+    }),
+    [channelType, order, publishedAfter, publishedBefore, query, regionCode, relevanceLanguage, safeSearch, topicId],
+  );
 
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
+  const draftRef = useRef(currentDraft);
+  draftRef.current = currentDraft;
+
+  const persistDraft = useCallback((draft: typeof currentDraft) => {
+    return fetch('/api/app-state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ discoverDraft: draft }),
+      keepalive: true,
+    }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void persistDraft(currentDraft);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [currentDraft, persistDraft]);
+
+  useEffect(() => {
+    const handleHide = () => {
+      void persistDraft(draftRef.current);
     };
-  }, [channelType, order, publishedAfter, publishedBefore, query, regionCode, relevanceLanguage, safeSearch, topicId]);
+    window.addEventListener('pagehide', handleHide);
+    window.addEventListener('beforeunload', handleHide);
+    return () => {
+      window.removeEventListener('pagehide', handleHide);
+      window.removeEventListener('beforeunload', handleHide);
+      void persistDraft(draftRef.current);
+    };
+  }, [persistDraft]);
 
   function applyResponse(data: Record<string, any>) {
     const nextFilters = data.filters as DiscoverSearchFilters | undefined;
@@ -232,6 +250,8 @@ export function DiscoverChannelsClient({
       setState((current) => ({ ...current, error: 'Enter a keyword first.' }));
       return;
     }
+
+    await persistDraft(draftRef.current);
 
     const params = new URLSearchParams({
       q: query.trim(),
