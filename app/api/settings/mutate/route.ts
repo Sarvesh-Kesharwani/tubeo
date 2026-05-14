@@ -22,7 +22,11 @@ import {
 } from '@/lib/types';
 import { DeepSeekConfigError, DeepSeekRequestError, fetchVocabMeaning } from '@/lib/deepseek';
 import { getEnvChannelIds } from '@/lib/whitelist';
-import { instagramChannelId, parseInstagramChannelInput } from '@/lib/instagram';
+import {
+  checkInstagramAccountAccess,
+  instagramChannelId,
+  parseInstagramChannelInput,
+} from '@/lib/instagram';
 
 const API = 'https://www.googleapis.com/youtube/v3';
 
@@ -190,6 +194,23 @@ export async function POST(req: Request) {
         const channelId = instagramChannelId(instagramUsername);
         const store = await getCookieChannelStore();
         if (store.channels.some((channel) => channel.id === channelId)) return fail('Instagram channel already added.');
+
+        const access = await checkInstagramAccountAccess(instagramUsername);
+        if (access.kind === 'personal') {
+          return fail(
+            `@${instagramUsername} isn't a Business or Creator account on Instagram, so its reels can't be loaded automatically. Forward reels from this account to @toolshub2026 to save them individually.`,
+          );
+        }
+        if (access.kind === 'not_found') {
+          return fail(`No Instagram account found for @${instagramUsername}.`);
+        }
+        if (access.kind === 'token_invalid') {
+          return fail('Instagram access token is invalid or expired. Please update INSTAGRAM_ACCESS_TOKEN.');
+        }
+        if (access.kind === 'unknown_error') {
+          return fail(`Instagram check failed: ${access.message}`);
+        }
+
         const synced = await persistChannelStore({
           ...store,
           channels: [{ id: channelId, space: DEFAULT_CHANNEL_SPACE }, ...store.channels],

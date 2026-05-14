@@ -344,16 +344,25 @@ export function extractInstagramSenderIdsFromPayload(payload: unknown): string[]
 export async function appendInstagramInboxReels(
   urls: string[],
 ): Promise<{ added: number; total: number; persisted: boolean }> {
-  const incoming = urls
+  const resolved = urls
     .map((url) => resolveSavedVideoFromUrl(url))
-    .filter((item): item is { id: string; url: string } => Boolean(item))
-    .map((item) => ({
-      id: item.id,
-      url: item.url,
-      note: 'Forwarded to @toolshub2026',
-      category: INBOX_CATEGORY,
-      addedAt: new Date().toISOString(),
-    } satisfies SavedVideo));
+    .filter((item): item is { id: string; url: string } => Boolean(item));
+
+  const enriched = await Promise.all(
+    resolved.map(async (item) => {
+      const meta = await instagramReelOembed(item.url).catch(() => null);
+      const author = meta?.authorName ? ` — @${meta.authorName}` : '';
+      const note = meta?.title ? `${meta.title}${author}` : 'Forwarded to @toolshub2026';
+      return {
+        id: item.id,
+        url: item.url,
+        note,
+        category: INBOX_CATEGORY,
+        addedAt: new Date().toISOString(),
+      } satisfies SavedVideo;
+    }),
+  );
+  const incoming = enriched;
 
   if (incoming.length === 0) {
     return { added: 0, total: (await readInstagramInboxSavedVideos()).length, persisted: true };
@@ -385,6 +394,101 @@ function graphConfig(): { token: string; userId: string; version: string } | nul
 
   if (!token || !userId) return null;
   return { token, userId, version };
+}
+
+interface InstagramOembedResponse {
+  title?: string;
+  author_name?: string;
+  author_url?: string;
+  thumbnail_url?: string;
+  provider_name?: string;
+  error?: { message?: string };
+}
+
+export interface InstagramReelMetadata {
+  title: string;
+  authorName: string;
+  authorUrl?: string;
+  thumbnailUrl?: string;
+}
+
+function oembedAccessToken(): string | null {
+  const appId = process.env.META_APP_ID?.trim() || process.env.FB_APP_ID?.trim();
+  const appSecret = process.env.META_APP_SECRET?.trim();
+  if (appId && appSecret) return `${appId}|${appSecret}`;
+  return process.env.INSTAGRAM_ACCESS_TOKEN?.trim() || process.env.META_ACCESS_TOKEN?.trim() || null;
+}
+
+export async function instagramReelOembed(url: string): Promise<InstagramReelMetadata | null> {
+  const token = oembedAccessToken();
+  if (!token) return null;
+
+  const qs = new URLSearchParams({ url, access_token: token, omitscript: 'true' });
+  const version = process.env.INSTAGRAM_API_VERSION?.trim() || DEFAULT_GRAPH_VERSION;
+  const res = await fetch(`https://graph.facebook.com/${version}/instagram_oembed?${qs}`, {
+    next: { revalidate: 86400 },
+  });
+
+  const data = (await res.json().catch(() => null)) as InstagramOembedResponse | null;
+  if (!res.ok || !data || data.error) return null;
+
+  const title = (data.title ?? '').replace(/\s+/g, ' ').trim();
+  return {
+    title: title ? (title.length > 140 ? `${title.slice(0, 137)}...` : title) : 'Instagram reel',
+    authorName: data.author_name ?? '',
+    authorUrl: data.author_url,
+    thumbnailUrl: data.thumbnail_url,
+  };
+}
+
+export type InstagramAccountAccess =
+  | { kind: 'business'; username: string }
+  | { kind: 'personal'; username: string }
+  | { kind: 'not_found'; username: string }
+  | { kind: 'token_invalid'; username: string; message: string }
+  | { kind: 'unknown_error'; username: string; message: string };
+
+export async function checkInstagramAccountAccess(username: string): Promise<InstagramAccountAccess> {
+  const cleanUsername = username.trim().replace(/^@/, '').toLowerCase();
+  const cfg = graphConfig();
+  if (!cfg) {
+    return {
+      kind: 'token_invalid',
+      username: cleanUsername,
+      message: 'Instagram API not configured on the server.',
+    };
+  }
+
+  const fields = `business_discovery.username(${cleanUsername}){id,username}`;
+  const qs = new URLSearchParams({ fields, access_token: cfg.token });
+  const res = await fetch(`https://graph.facebook.com/${cfg.version}/${cfg.userId}?${qs}`, {
+    cache: 'no-store',
+  });
+  const data = (await res.json().catch(() => null)) as BusinessDiscoveryResponse | null;
+
+  if (data?.business_discovery?.username) {
+    return { kind: 'business', username: cleanUsername };
+  }
+
+  const err = data?.error as { message?: string; code?: number; error_subcode?: number } | undefined;
+  const message = err?.message ?? `Instagram Graph API failed: ${res.status}`;
+  const lower = message.toLowerCase();
+
+  if (lower.includes('does not exist') || lower.includes('not found') || lower.includes('cannot be found')) {
+    return { kind: 'not_found', username: cleanUsername };
+  }
+  if (
+    lower.includes('not a business') ||
+    lower.includes('not a creator') ||
+    lower.includes('does not have an instagram business') ||
+    lower.includes('business account is restricted')
+  ) {
+    return { kind: 'personal', username: cleanUsername };
+  }
+  if (err?.code === 190 || lower.includes('access token') || lower.includes('oauth')) {
+    return { kind: 'token_invalid', username: cleanUsername, message };
+  }
+  return { kind: 'unknown_error', username: cleanUsername, message };
 }
 
 export async function sendInstagramMessage(recipientId: string, text: string): Promise<boolean> {
