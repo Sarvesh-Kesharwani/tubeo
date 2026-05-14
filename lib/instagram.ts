@@ -18,6 +18,8 @@ export const DEFAULT_INSTAGRAM_CHANNEL = {
   url: 'https://www.instagram.com/deadliestfiles/reels/',
 };
 
+export const INSTAGRAM_CHANNEL_PREFIX = 'ig:';
+
 export interface InstagramReel {
   id: string;
   shortcode: string;
@@ -26,6 +28,34 @@ export interface InstagramReel {
   thumbnail: string;
   publishedAt: string;
   channelUsername: string;
+}
+
+export function isInstagramChannelId(id: string): boolean {
+  return id.startsWith(INSTAGRAM_CHANNEL_PREFIX) && id.length > INSTAGRAM_CHANNEL_PREFIX.length;
+}
+
+export function instagramChannelId(username: string): string {
+  return `${INSTAGRAM_CHANNEL_PREFIX}${username.trim().replace(/^@/, '').toLowerCase()}`;
+}
+
+export function instagramUsernameFromChannelId(id: string): string {
+  return isInstagramChannelId(id) ? id.slice(INSTAGRAM_CHANNEL_PREFIX.length) : id;
+}
+
+export function parseInstagramChannelInput(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+
+  try {
+    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
+    if (!url.hostname.includes('instagram.com')) return null;
+    const segments = url.pathname.split('/').filter(Boolean);
+    const username = segments[0]?.replace(/^@/, '').toLowerCase();
+    if (!username || ['reel', 'reels', 'p', 'tv', 'explore'].includes(username)) return null;
+    return /^[a-z0-9._]+$/i.test(username) ? username : null;
+  } catch {
+    return null;
+  }
 }
 
 interface SupabaseConfig {
@@ -343,10 +373,11 @@ function shortcodeFromPermalink(permalink: string | undefined, fallback: string)
   }
 }
 
-export async function getDefaultInstagramChannelReels(limit = 5): Promise<{
+export async function getInstagramChannelReels(username: string, limit = 5): Promise<{
   reels: InstagramReel[];
   error?: string;
 }> {
+  const cleanUsername = username.trim().replace(/^@/, '').toLowerCase();
   const cfg = graphConfig();
   if (!cfg) {
     return {
@@ -355,7 +386,7 @@ export async function getDefaultInstagramChannelReels(limit = 5): Promise<{
     };
   }
 
-  const fields = `business_discovery.username(${DEFAULT_INSTAGRAM_CHANNEL.username}){id,username,name,profile_picture_url,media.limit(12){id,caption,media_type,media_url,thumbnail_url,permalink,timestamp}}`;
+  const fields = `business_discovery.username(${cleanUsername}){id,username,name,profile_picture_url,media.limit(12){id,caption,media_type,media_url,thumbnail_url,permalink,timestamp}}`;
   const qs = new URLSearchParams({
     fields,
     access_token: cfg.token,
@@ -375,7 +406,7 @@ export async function getDefaultInstagramChannelReels(limit = 5): Promise<{
   const channel = data?.business_discovery;
   const media = channel?.media?.data ?? [];
   const reels = media
-    .filter((item) => item.permalink && (item.permalink.includes('/reel/') || item.media_type === 'VIDEO'))
+      .filter((item) => item.permalink && (item.permalink.includes('/reel/') || item.media_type === 'VIDEO'))
     .slice(0, Math.max(1, limit))
     .map((item) => {
       const permalink = item.permalink ?? DEFAULT_INSTAGRAM_CHANNEL.url;
@@ -387,9 +418,16 @@ export async function getDefaultInstagramChannelReels(limit = 5): Promise<{
         title: titleFromCaption(item.caption, `Instagram reel ${shortcode}`),
         thumbnail: item.thumbnail_url ?? item.media_url ?? channel?.profile_picture_url ?? '',
         publishedAt: item.timestamp ?? new Date(0).toISOString(),
-        channelUsername: channel?.username ?? DEFAULT_INSTAGRAM_CHANNEL.username,
+        channelUsername: channel?.username ?? cleanUsername,
       } satisfies InstagramReel;
     });
 
   return { reels };
+}
+
+export async function getDefaultInstagramChannelReels(limit = 5): Promise<{
+  reels: InstagramReel[];
+  error?: string;
+}> {
+  return getInstagramChannelReels(DEFAULT_INSTAGRAM_CHANNEL.username, limit);
 }

@@ -26,6 +26,7 @@ import {
 } from '@/lib/types';
 import { DeepSeekConfigError, DeepSeekRequestError, fetchVocabMeaning } from '@/lib/deepseek';
 import { getEnvChannelIds } from '@/lib/whitelist';
+import { instagramChannelId, parseInstagramChannelInput } from '@/lib/instagram';
 
 const API = 'https://www.googleapis.com/youtube/v3';
 
@@ -187,6 +188,18 @@ export async function POST(req: Request) {
     if (type === 'addChannel') {
       const input = String(body.url ?? '').trim();
       if (!input) return fail('Please enter a channel URL or handle.');
+
+      const instagramUsername = parseInstagramChannelInput(input);
+      if (instagramUsername) {
+        const channelId = instagramChannelId(instagramUsername);
+        const store = await getCookieChannelStore();
+        if (store.channels.some((channel) => channel.id === channelId)) return fail('Instagram channel already added.');
+        const synced = await persistChannelStore({
+          ...store,
+          channels: [{ id: channelId, space: DEFAULT_CHANNEL_SPACE }, ...store.channels],
+        });
+        return ok({ success: `@${instagramUsername}`, synced });
+      }
 
       const channelId = await resolveToChannelId(input);
       const existing = await getCookieChannelIds();

@@ -56,7 +56,7 @@ export function AddChannelForm() {
           ref={inputRef}
           name="url"
           type="text"
-          placeholder="youtube.com/@handle or channel URL"
+          placeholder="youtube.com/@handle or instagram.com/username"
           className="flex-1 px-4 py-2 rounded-chonk border-2 border-duo-border bg-white text-duo-ink placeholder:text-duo-ink/40 focus:outline-none focus:border-duo-green font-semibold text-sm"
           disabled={pending}
           required

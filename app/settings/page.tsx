@@ -13,6 +13,7 @@ import {
   getWhitelistedChannelSpaces,
 } from '@/lib/whitelist';
 import { getChannels, getYouTubeQuotaSummary } from '@/lib/youtube';
+import { isInstagramChannelId, instagramUsernameFromChannelId } from '@/lib/instagram';
 
 export default async function SettingsPage() {
   const session = await getSession();
@@ -22,25 +23,28 @@ export default async function SettingsPage() {
     getWhitelistedChannelSpaces(),
   ]);
   const allIds = preferences.map((channel) => channel.id);
+  const youtubeIds = allIds.filter((id) => !isInstagramChannelId(id));
   const quotaViewerEmail = (process.env.YOUTUBE_QUOTA_VIEWER_EMAIL ?? '').trim().toLowerCase();
   const canViewQuota =
     !!quotaViewerEmail && session?.user?.email?.trim().toLowerCase() === quotaViewerEmail;
 
   let channels: Awaited<ReturnType<typeof getChannels>> = [];
   try {
-    channels = await getChannels(allIds);
+    channels = await getChannels(youtubeIds);
   } catch {
     // Show IDs if API fails
   }
 
-  const quota = canViewQuota ? await getYouTubeQuotaSummary(allIds.length, session?.accessToken) : null;
+  const quota = canViewQuota ? await getYouTubeQuotaSummary(youtubeIds.length, session?.accessToken) : null;
 
   const channelMap = new Map(channels.map((channel) => [channel.id, channel]));
 
   const items: SpaceItem[] = spaces.map((space) => {
     const groupedPreferences = preferences.filter((channel) => channel.space === space);
     const channelItems: SpaceChannelItem[] = groupedPreferences.map((channelPreference) => {
-      const channel = channelMap.get(channelPreference.id);
+      const isInstagram = isInstagramChannelId(channelPreference.id);
+      const username = instagramUsernameFromChannelId(channelPreference.id);
+      const channel = isInstagram ? null : channelMap.get(channelPreference.id);
       const fromEnv = envIds.includes(channelPreference.id);
       return {
         id: channelPreference.id,
@@ -48,7 +52,7 @@ export default async function SettingsPage() {
         node: (
           <ChannelSettingsRow
             id={channelPreference.id}
-            title={channel?.title}
+            title={isInstagram ? `@${username}` : channel?.title}
             thumbnail={channel?.thumbnail}
             fromEnv={fromEnv}
             currentSpace={channelPreference.space}

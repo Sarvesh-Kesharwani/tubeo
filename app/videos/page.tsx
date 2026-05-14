@@ -7,6 +7,7 @@ import {
   persistSavedVideos,
 } from '@/lib/saved-videos';
 import { readInstagramInboxSavedVideos } from '@/lib/instagram';
+import { fetchLinkNestSavedLinks, importLinkNestRows } from '@/lib/linknest-import';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
 import { getVideosByIds } from '@/lib/youtube';
@@ -40,9 +41,21 @@ export default async function VideosPage() {
     getCookieSavedVideos(),
     readInstagramInboxSavedVideos(),
   ]);
-  const existingIds = new Set(cookieSaved.map((video) => video.id));
+  let saved = cookieSaved;
+  try {
+    const rows = await fetchLinkNestSavedLinks();
+    const imported = importLinkNestRows(saved, rows);
+    if (imported.imported.length > 0 || imported.updated > 0) {
+      saved = imported.videos;
+      await persistSavedVideos(saved, session.accessToken);
+    }
+  } catch {
+    // Keep the page usable if LinkNest is temporarily unavailable.
+  }
+
+  const existingIds = new Set(saved.map((video) => video.id));
   const newInboxSaved = inboxSaved.filter((video) => !existingIds.has(video.id));
-  const saved = newInboxSaved.length > 0 ? [...newInboxSaved, ...cookieSaved] : cookieSaved;
+  saved = newInboxSaved.length > 0 ? [...newInboxSaved, ...saved] : saved;
 
   if (newInboxSaved.length > 0) {
     await persistSavedVideos(saved, session.accessToken);

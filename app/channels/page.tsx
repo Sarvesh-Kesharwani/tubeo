@@ -11,7 +11,12 @@ import { getCookieViewPreferences } from '@/lib/channels-cookie';
 import { parseMediaFilter } from '@/lib/media';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
-import { DEFAULT_INSTAGRAM_CHANNEL, getDefaultInstagramChannelReels } from '@/lib/instagram';
+import {
+  DEFAULT_INSTAGRAM_CHANNEL,
+  instagramUsernameFromChannelId,
+  isInstagramChannelId,
+  getInstagramChannelReels,
+} from '@/lib/instagram';
 import { parseRange } from '@/lib/time';
 import { CHANNELS_OVERVIEW_SPACE, DEFAULT_CHANNEL_SPACE } from '@/lib/types';
 import { getChannelGroupedFeedWithQuota } from '@/lib/youtube';
@@ -73,40 +78,53 @@ async function Grouped({
     getWhitelistedChannelPreferences(),
     getWhitelistedChannelSpaces(),
   ]);
-  if (preferences.length === 0) {
-    return (
-      <EmptyState
-        emoji="..."
-        title="No channels whitelisted yet"
-        description="Add channel IDs to WHITELIST_CHANNELS in .env.local (comma-separated)."
-      />
-    );
-  }
-
   const spaceById = new Map(preferences.map((channel) => [channel.id, channel.space]));
   const orderedSpaces = [...new Set(savedSpaces.map((space) => space || DEFAULT_CHANNEL_SPACE))];
 
   let groups;
   let quotaUnits = 0;
-  let instagramReels: Awaited<ReturnType<typeof getDefaultInstagramChannelReels>> = { reels: [] };
+  const instagramPreferences = preferences.filter((channel) => isInstagramChannelId(channel.id));
+  const instagramChannels =
+    instagramPreferences.length > 0
+      ? instagramPreferences
+      : [{ id: `ig:${DEFAULT_INSTAGRAM_CHANNEL.username}`, space: DEFAULT_CHANNEL_SPACE }];
+  let instagramResults: Array<{
+    id: string;
+    username: string;
+    space: string;
+    result: Awaited<ReturnType<typeof getInstagramChannelReels>>;
+  }> = [];
   try {
     const perChannel = range === 'all' ? 50 : 12;
-    const [result, instagramResult] = await Promise.all([
+    const [result, resolvedInstagram] = await Promise.all([
       getChannelGroupedFeedWithQuota(range, media, perChannel, now),
-      media === 'videos' ? Promise.resolve({ reels: [] }) : getDefaultInstagramChannelReels(5),
+      media === 'videos'
+        ? Promise.resolve([])
+        : Promise.all(
+            instagramChannels.map(async (channel) => {
+              const username = instagramUsernameFromChannelId(channel.id);
+              return {
+                id: channel.id,
+                username,
+                space: channel.space,
+                result: await getInstagramChannelReels(username, 5),
+              };
+            }),
+          ),
     ]);
     groups = result.groups;
     quotaUnits = result.quota.refreshCost;
-    instagramReels = instagramResult;
+    instagramResults = resolvedInstagram;
   } catch (error) {
     return <EmptyState emoji="!" title="Couldn't load channels" description={(error as Error).message} />;
   }
 
+  const youtubePreferences = preferences.filter((channel) => !isInstagramChannelId(channel.id));
   const groupedWithSpace = groups.map((group) => ({
     ...group,
     space: spaceById.get(group.channel.id) ?? DEFAULT_CHANNEL_SPACE,
   }));
-  const missingGroups = preferences
+  const missingGroups = youtubePreferences
     .filter((channel) => !groupedWithSpace.some((group) => group.channel.id === channel.id))
     .map((channel) => ({
       channel: {
@@ -129,12 +147,25 @@ async function Grouped({
       ? visibleGroups
       : visibleGroups.filter((group) => group.space === activeSpaceValue);
 
+  const instagramCountForSpace = (space: string) =>
+    instagramChannels.filter((channel) => channel.space === space).length;
+  const visibleInstagramResults = instagramResults.filter(
+    (item) =>
+      activeSpaceValue === CHANNELS_OVERVIEW_SPACE ||
+      item.space === activeSpaceValue ||
+      (!item.space && activeSpaceValue === DEFAULT_CHANNEL_SPACE),
+  );
+
   const tabs = [
-    { value: CHANNELS_OVERVIEW_SPACE, label: DEFAULT_CHANNEL_SPACE, count: visibleGroups.length },
+    {
+      value: CHANNELS_OVERVIEW_SPACE,
+      label: DEFAULT_CHANNEL_SPACE,
+      count: visibleGroups.length + instagramChannels.length,
+    },
     ...orderedSpaces.filter((space) => space !== DEFAULT_CHANNEL_SPACE).map((space) => ({
       value: space,
       label: space,
-      count: visibleGroups.filter((group) => group.space === space).length,
+      count: visibleGroups.filter((group) => group.space === space).length + instagramCountForSpace(space),
     })),
   ];
 
@@ -149,15 +180,16 @@ async function Grouped({
       <ViewPreferenceTracker page="channels" range={range} media={media} space={activeSpaceValue} />
       <SpaceTabs activeSpace={activeSpaceValue} tabs={tabs} />
 
-      {(activeSpaceValue === CHANNELS_OVERVIEW_SPACE || activeSpaceValue === DEFAULT_CHANNEL_SPACE) && (
-        <InstagramChannelRow
-          title={DEFAULT_INSTAGRAM_CHANNEL.title}
-          url={DEFAULT_INSTAGRAM_CHANNEL.url}
-          reels={instagramReels.reels}
-          error={instagramReels.error}
-          now={now}
-        />
-      )}
+      {visibleInstagramResults.map((item) => (
+          <InstagramChannelRow
+            key={item.id}
+            title={item.username}
+            url={`https://www.instagram.com/${item.username}/reels/`}
+            reels={item.result.reels}
+            error={item.result.error}
+            now={now}
+          />
+        ))}
 
       {activeSpaceValue === CHANNELS_OVERVIEW_SPACE ? (
         <div className="space-y-4">
@@ -192,7 +224,7 @@ async function Grouped({
             );
           })}
         </div>
-      ) : filteredGroups.length === 0 ? (
+      ) : filteredGroups.length === 0 && visibleInstagramResults.length === 0 ? (
         <EmptyState
           emoji="0"
           title="No channels in this filter"

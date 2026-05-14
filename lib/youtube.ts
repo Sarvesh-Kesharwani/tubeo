@@ -621,6 +621,7 @@ function buildQuotaSummary(
 
 export async function getChannels(ids?: string[]): Promise<Channel[]> {
   if (!ids) ids = await getWhitelistedChannelIds();
+  ids = ids.filter((id) => /^UC[\w-]{22}$/.test(id));
   if (ids.length === 0) return [];
 
   const chunks: string[][] = [];
