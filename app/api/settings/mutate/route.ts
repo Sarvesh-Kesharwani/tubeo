@@ -1,16 +1,12 @@
 import { revalidatePath } from 'next/cache';
 import {
-  getCookieChannelIds,
   getCookieChannelSyncMeta,
   getCookieChannelStore,
-  getCookieChannelPreferences,
   hasDriveSyncHydrated,
   markCookieChannelStoreDirty,
   markCookieChannelStoreSynced,
   markDriveSyncHydrated,
   setCookieChannelStore,
-  setCookieChannelSpaces,
-  setCookieChannelPreferences,
 } from '@/lib/channels-cookie';
 import { getSession } from '@/lib/session';
 import { normalizeSpaceName } from '@/lib/spaces';
@@ -202,13 +198,14 @@ export async function POST(req: Request) {
       }
 
       const channelId = await resolveToChannelId(input);
-      const existing = await getCookieChannelIds();
-      if (existing.includes(channelId)) return fail('Channel already added.');
+      const store = await getCookieChannelStore();
+      if (store.channels.some((channel) => channel.id === channelId)) return fail('Channel already added.');
 
-      const channels = await getCookieChannelPreferences();
-      await setCookieChannelPreferences([...channels, { id: channelId, space: DEFAULT_CHANNEL_SPACE }]);
-      await markCookieChannelStoreDirty();
-      return ok({ success: channelId });
+      const synced = await persistChannelStore({
+        ...store,
+        channels: [...store.channels, { id: channelId, space: DEFAULT_CHANNEL_SPACE }],
+      });
+      return ok({ success: channelId, synced });
     }
 
     if (type === 'createSpace') {
@@ -216,17 +213,22 @@ export async function POST(req: Request) {
       const store = await getCookieChannelStore();
       if (store.spaces.includes(nextSpace)) return fail('That space already exists.');
 
-      await setCookieChannelSpaces([...store.spaces, nextSpace]);
-      await markCookieChannelStoreDirty();
-      return ok({ success: nextSpace });
+      const synced = await persistChannelStore({
+        ...store,
+        spaces: [...store.spaces, nextSpace],
+      });
+      return ok({ success: nextSpace, synced });
     }
 
     if (type === 'removeChannel') {
       const channelId = String(body.channelId ?? '').trim();
-      const existing = await getCookieChannelPreferences();
-      await setCookieChannelPreferences(existing.filter((channel) => channel.id !== channelId));
-      await markCookieChannelStoreDirty();
-      return ok({ success: channelId });
+      const store = await getCookieChannelStore();
+      const synced = await persistChannelStore({
+        ...store,
+        channels: store.channels.filter((channel) => channel.id !== channelId),
+        updatesChannelIds: store.updatesChannelIds.filter((id) => id !== channelId),
+      });
+      return ok({ success: channelId, synced });
     }
 
     if (type === 'moveChannel') {
@@ -236,17 +238,19 @@ export async function POST(req: Request) {
       const existing = store.channels;
       const index = existing.findIndex((channel) => channel.id === channelId);
 
+      const channels = [...existing];
       if (index === -1) {
-        await setCookieChannelPreferences([...existing, { id: channelId, space: nextSpace }]);
+        channels.push({ id: channelId, space: nextSpace });
       } else {
-        const updated = [...existing];
-        updated[index] = { ...updated[index], space: nextSpace };
-        await setCookieChannelPreferences(updated);
+        channels[index] = { ...channels[index], space: nextSpace };
       }
 
-      await setCookieChannelSpaces([...store.spaces, nextSpace]);
-      await markCookieChannelStoreDirty();
-      return ok({ success: nextSpace });
+      const synced = await persistChannelStore({
+        ...store,
+        channels,
+        spaces: store.spaces.includes(nextSpace) ? store.spaces : [...store.spaces, nextSpace],
+      });
+      return ok({ success: nextSpace, synced });
     }
 
     if (type === 'renameSpace') {
