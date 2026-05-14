@@ -20,12 +20,12 @@ function normalizeDiscoverDraft(value: unknown): DiscoverSearchFilters | undefin
   const item = value as Partial<DiscoverSearchFilters>;
   return {
     q: item.q?.trim() ?? '',
-    order: item.order?.trim() || 'relevance',
+    order: item.order?.trim() || 'rating',
     regionCode: item.regionCode?.trim() ?? '',
-    relevanceLanguage: item.relevanceLanguage?.trim() ?? '',
+    relevanceLanguage: item.relevanceLanguage?.trim() ?? 'en',
     safeSearch: item.safeSearch?.trim() || 'moderate',
     channelType: item.channelType?.trim() || 'any',
-    topicId: item.topicId?.trim() ?? '',
+    topicId: item.topicId?.trim() ?? '/m/07c1v',
     publishedAfter: item.publishedAfter?.trim() ?? '',
     publishedBefore: item.publishedBefore?.trim() ?? '',
   };

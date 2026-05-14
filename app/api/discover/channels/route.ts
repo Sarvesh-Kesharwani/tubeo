@@ -19,7 +19,7 @@ function filtersFromParams(url: URL): DiscoverSearchFilters {
     order: pick<ChannelSearchOrder>(
       url.searchParams.get('order'),
       ['date', 'rating', 'relevance', 'title', 'videoCount', 'viewCount'],
-      'relevance',
+      'rating',
     ),
     regionCode: (url.searchParams.get('regionCode') ?? '').trim(),
     relevanceLanguage: (url.searchParams.get('relevanceLanguage') ?? '').trim(),

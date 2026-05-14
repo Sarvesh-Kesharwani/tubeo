@@ -149,12 +149,12 @@ function normalizeIgnoredChannels(value: DiscoveredChannel[] | undefined): Disco
 function normalizeDiscoverFilters(value: Partial<DiscoverSearchFilters> | undefined): DiscoverSearchFilters {
   return {
     q: value?.q?.trim() ?? '',
-    order: value?.order?.trim() || 'relevance',
+    order: value?.order?.trim() || 'rating',
     regionCode: value?.regionCode?.trim() ?? '',
-    relevanceLanguage: value?.relevanceLanguage?.trim() ?? '',
+    relevanceLanguage: value?.relevanceLanguage?.trim() ?? 'en',
     safeSearch: value?.safeSearch?.trim() || 'moderate',
     channelType: value?.channelType?.trim() || 'any',
-    topicId: value?.topicId?.trim() ?? '',
+    topicId: value?.topicId?.trim() ?? '/m/07c1v',
     publishedAfter: value?.publishedAfter?.trim() ?? '',
     publishedBefore: value?.publishedBefore?.trim() ?? '',
   };

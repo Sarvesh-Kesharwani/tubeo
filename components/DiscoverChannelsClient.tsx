@@ -146,12 +146,12 @@ export function DiscoverChannelsClient({
   const initialState = stateFromSearch(initialSearches, activeSearchId, initialIgnored, initialExistingIds ?? []);
   const initialFilters = initialDraft?.q || initialDraft?.order ? initialDraft : initialState.filters;
   const [query, setQuery] = useState(initialFilters?.q ?? '');
-  const [order, setOrder] = useState(initialFilters?.order || 'relevance');
-  const [regionCode, setRegionCode] = useState(initialFilters?.regionCode || 'IN');
-  const [relevanceLanguage, setRelevanceLanguage] = useState(initialFilters?.relevanceLanguage || 'en');
+  const [order, setOrder] = useState(initialFilters?.order || 'rating');
+  const [regionCode, setRegionCode] = useState(initialFilters?.regionCode ?? '');
+  const [relevanceLanguage, setRelevanceLanguage] = useState(initialFilters?.relevanceLanguage ?? 'en');
   const [safeSearch, setSafeSearch] = useState(initialFilters?.safeSearch || 'moderate');
   const [channelType, setChannelType] = useState(initialFilters?.channelType || 'any');
-  const [topicId, setTopicId] = useState(initialFilters?.topicId || '');
+  const [topicId, setTopicId] = useState(initialFilters?.topicId ?? '/m/07c1v');
   const [publishedAfter, setPublishedAfter] = useState(initialFilters?.publishedAfter?.slice(0, 10) || '');
   const [publishedBefore, setPublishedBefore] = useState(initialFilters?.publishedBefore?.slice(0, 10) || '');
   const [pageDraft, setPageDraft] = useState(String(initialState.pageNumber));
