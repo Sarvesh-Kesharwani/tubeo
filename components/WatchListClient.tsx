@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { VideoCard } from '@/components/VideoCard';
 import { VideoPlayerModal } from '@/components/VideoPlayerModal';
+import { ShortFeedDialog } from '@/components/ShortFeedDialog';
 import type { Video } from '@/lib/types';
 import {
   INSTAGRAM_SAVED_PREFIX,
@@ -83,6 +84,7 @@ export function WatchListClient({
   );
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
   const [feedOpen, setFeedOpen] = useState(false);
+  const [shortFeedOpen, setShortFeedOpen] = useState(false);
   const [activeFeedId, setActiveFeedId] = useState<string | null>(null);
   const [url, setUrl] = useState('');
   const [note, setNote] = useState('');
@@ -573,6 +575,14 @@ export function WatchListClient({
             >
               Watch Feed
             </button>
+            <button
+              type="button"
+              onClick={() => setShortFeedOpen(true)}
+              className="btn-duo-ghost"
+              title="Fetch up to 50 YouTube Shorts by keyword + date range"
+            >
+              Short Feed
+            </button>
           </div>
           <span className="text-xs font-bold text-duo-mute">
             {uncategorizedWithNoteCount} uncategorized with notes
@@ -656,6 +666,8 @@ export function WatchListClient({
       )}
 
       <VideoPlayerModal video={activeVideo} now={now} onClose={() => setActiveVideo(null)} />
+
+      <ShortFeedDialog open={shortFeedOpen} onClose={() => setShortFeedOpen(false)} />
     </>
   );
 }

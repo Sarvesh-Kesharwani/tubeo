@@ -164,6 +164,100 @@ export interface ChannelStatsResult {
   quotaUnits: number;
 }
 
+export interface ShortFeedVideo {
+  id: string;
+  title: string;
+  thumbnail: string;
+  channelId: string;
+  channelTitle: string;
+  publishedAt: string;
+  viewCount?: number;
+  likeCount?: number;
+  commentCount?: number;
+  durationSec?: number;
+}
+
+export interface ShortFeedSearchParams {
+  q: string;
+  publishedAfter?: string;
+  publishedBefore?: string;
+  maxResults?: number;
+  order?: 'date' | 'viewCount' | 'relevance' | 'rating';
+}
+
+export async function searchYouTubeShorts(
+  params: ShortFeedSearchParams,
+): Promise<{ videos: ShortFeedVideo[]; quotaUnits: number }> {
+  const q = params.q.trim();
+  if (!q) return { videos: [], quotaUnits: 0 };
+
+  const max = Math.max(1, Math.min(50, Math.floor(params.maxResults ?? 50)));
+  let quotaUnits = 0;
+
+  const search = await yt<YTSearchListResp>(
+    'search',
+    {
+      part: 'snippet',
+      type: 'video',
+      videoDuration: 'short',
+      q,
+      maxResults: String(max),
+      order: params.order ?? 'viewCount',
+      safeSearch: 'moderate',
+      ...(validIsoDateTime(params.publishedAfter)
+        ? { publishedAfter: validIsoDateTime(params.publishedAfter)! }
+        : {}),
+      ...(validIsoDateTime(params.publishedBefore)
+        ? { publishedBefore: validIsoDateTime(params.publishedBefore)! }
+        : {}),
+    },
+    0,
+  );
+  quotaUnits += 100;
+
+  const ids = search.items
+    .map((item) => (item.id as { videoId?: string }).videoId)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return { videos: [], quotaUnits };
+
+  const data = await yt<YTVideoListResp>(
+    'videos',
+    {
+      part: 'snippet,statistics,contentDetails',
+      id: ids.join(','),
+      maxResults: String(ids.length),
+    },
+    600,
+  );
+  quotaUnits += 1;
+
+  const orderIndex = new Map(ids.map((id, index) => [id, index]));
+  const videos: ShortFeedVideo[] = data.items
+    .map((item) => {
+      const durationSec = parseDurationToSeconds(item.contentDetails?.duration);
+      return {
+        id: item.id,
+        title: item.snippet?.title || item.id,
+        thumbnail:
+          item.snippet?.thumbnails?.high?.url ??
+          item.snippet?.thumbnails?.medium?.url ??
+          item.snippet?.thumbnails?.default?.url ??
+          '',
+        channelId: item.snippet?.channelId || '',
+        channelTitle: item.snippet?.channelTitle || '',
+        publishedAt: item.snippet?.publishedAt || '',
+        viewCount: parseStat(item.statistics?.viewCount),
+        likeCount: parseStat(item.statistics?.likeCount),
+        commentCount: parseStat(item.statistics?.commentCount),
+        durationSec,
+      };
+    })
+    .filter((video) => isShortByDuration(video.durationSec))
+    .sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
+
+  return { videos, quotaUnits };
+}
+
 function parseDurationToSeconds(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const match = /^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(value);
