@@ -6,6 +6,17 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { DiscoverSearchFilters, DiscoverSearchRecord, DiscoveredChannel } from '@/lib/types';
 
+type TopVideo = {
+  id: string;
+  title: string;
+  thumbnail: string;
+  publishedAt: string;
+  viewCount?: number;
+  likeCount?: number;
+  commentCount?: number;
+  durationSec?: number;
+};
+
 const CHANNELS_CHANGED_EVENT = 'tubeo-channels-changed';
 
 type SearchState = {
@@ -137,6 +148,8 @@ export function DiscoverChannelsClient({
   const [state, setState] = useState<SearchState>(initialState);
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [statsWorkingId, setStatsWorkingId] = useState<string | null>(null);
+  const [topWorkingId, setTopWorkingId] = useState<string | null>(null);
+  const [topVideos, setTopVideos] = useState<Record<string, TopVideo[]>>({});
   const [isPending, startTransition] = useTransition();
 
   const currentIds = useMemo(() => new Set(state.existingIds), [state.existingIds]);
@@ -338,6 +351,27 @@ export function DiscoverChannelsClient({
     }
   }
 
+  async function fetchTopVideos(channelId: string) {
+    setTopWorkingId(channelId);
+    try {
+      const response = await fetch(
+        `/api/discover/channels/${encodeURIComponent(channelId)}/top-videos?limit=3`,
+        { cache: 'no-store' },
+      );
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        setState((current) => ({ ...current, error: data.error ?? 'Top videos fetch failed.' }));
+        return;
+      }
+      setTopVideos((current) => ({ ...current, [channelId]: data.videos ?? [] }));
+      setState((current) => ({ ...current, quotaUnits: current.quotaUnits + (data.quotaUnits ?? 0) }));
+    } catch {
+      setState((current) => ({ ...current, error: 'Top videos fetch failed.' }));
+    } finally {
+      setTopWorkingId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="card p-4 sm:p-5 space-y-4">
@@ -468,7 +502,10 @@ export function DiscoverChannelsClient({
                   selected={currentIds.has(channel.id)}
                   working={workingId === channel.id}
                   statsWorking={statsWorkingId === channel.id}
+                  topWorking={topWorkingId === channel.id}
+                  topVideos={topVideos[channel.id]}
                   onFetchStats={() => void fetchStats(channel.id)}
+                  onFetchTopVideos={() => void fetchTopVideos(channel.id)}
                   onAccept={() => void mutate('acceptDiscoveredChannel', channel)}
                   onIgnore={() => void mutate('ignoreDiscoveredChannel', channel)}
                 />
@@ -562,7 +599,10 @@ function ChannelCard({
   selected,
   working,
   statsWorking,
+  topWorking,
+  topVideos,
   onFetchStats,
+  onFetchTopVideos,
   onAccept,
   onIgnore,
 }: {
@@ -570,7 +610,10 @@ function ChannelCard({
   selected: boolean;
   working: boolean;
   statsWorking: boolean;
+  topWorking: boolean;
+  topVideos?: TopVideo[];
   onFetchStats: () => void;
+  onFetchTopVideos: () => void;
   onAccept: () => void;
   onIgnore: () => void;
 }) {
@@ -578,6 +621,7 @@ function ChannelCard({
     typeof channel.subscriberCount === 'number' ||
     typeof channel.viewCount === 'number' ||
     typeof channel.videoCount === 'number';
+  const hasTopVideos = Array.isArray(topVideos);
 
   return (
     <article className="card p-4">
@@ -604,6 +648,14 @@ function ChannelCard({
           <button className="btn-duo-blue flex-1 px-3 py-2 text-xs" disabled={statsWorking} onClick={onFetchStats}>
             {statsWorking ? '...' : hasStats ? 'Refresh stats' : 'Fetch stats'}
           </button>
+          <button
+            className="btn-duo-ghost flex-1 px-3 py-2 text-xs"
+            disabled={topWorking}
+            onClick={onFetchTopVideos}
+            title="Fetch this channel's top 3 videos by views, likes, comments"
+          >
+            {topWorking ? '...' : hasTopVideos ? 'Refresh top 3' : 'Top 3 videos'}
+          </button>
           <button className="btn-duo-green flex-1 px-3 py-2 text-xs" disabled={working || selected} onClick={onAccept}>
             {selected ? 'Added' : working ? '...' : 'Select'}
           </button>
@@ -612,6 +664,57 @@ function ChannelCard({
           </button>
         </div>
       </div>
+      {hasTopVideos && (
+        <div className="mt-4 space-y-2">
+          <p className="text-[11px] font-extrabold uppercase tracking-wide text-duo-ink/45">
+            Top 3 videos (views → likes → comments)
+          </p>
+          {topVideos!.length === 0 ? (
+            <p className="rounded-2xl border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-3 text-sm font-bold text-duo-mute">
+              No public videos found.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {topVideos!.map((video) => (
+                <li key={video.id}>
+                  <a
+                    href={`https://www.youtube.com/watch?v=${video.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start gap-3 rounded-2xl border-2 border-duo-border bg-duo-soft/40 p-2 hover:bg-duo-soft"
+                  >
+                    {video.thumbnail ? (
+                      <img src={video.thumbnail} alt="" className="h-16 w-28 shrink-0 rounded-xl object-cover" />
+                    ) : (
+                      <div className="h-16 w-28 shrink-0 rounded-xl bg-duo-soft" />
+                    )}
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <p className="line-clamp-2 text-sm font-extrabold text-duo-ink">{video.title}</p>
+                      <div className="flex flex-wrap gap-1.5 text-[11px] font-extrabold text-duo-ink/55">
+                        <span className="chip cursor-default">Views {formatCount(video.viewCount)}</span>
+                        <span className="chip cursor-default">Likes {formatCount(video.likeCount)}</span>
+                        <span className="chip cursor-default">Comments {formatCount(video.commentCount)}</span>
+                        {typeof video.durationSec === 'number' && (
+                          <span className="chip cursor-default">{formatDuration(video.durationSec)}</span>
+                        )}
+                      </div>
+                    </div>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </article>
   );
+}
+
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }

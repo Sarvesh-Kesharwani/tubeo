@@ -76,7 +76,7 @@ interface YTVideoListResp {
       thumbnails: { medium?: { url: string }; high?: { url: string }; default?: { url: string } };
     };
     contentDetails?: { duration?: string };
-    statistics?: { viewCount?: string };
+    statistics?: { viewCount?: string; likeCount?: string; commentCount?: string };
   }>;
 }
 
@@ -291,6 +291,85 @@ export async function getYouTubeChannelStatsMany(
   }
 
   return { stats, quotaUnits };
+}
+
+export interface DiscoveredTopVideo {
+  id: string;
+  title: string;
+  thumbnail: string;
+  publishedAt: string;
+  viewCount?: number;
+  likeCount?: number;
+  commentCount?: number;
+  durationSec?: number;
+}
+
+export async function getTopVideosForChannel(
+  channelId: string,
+  limit = 3,
+): Promise<{ videos: DiscoveredTopVideo[]; quotaUnits: number }> {
+  const id = channelId.trim();
+  if (!id) return { videos: [], quotaUnits: 0 };
+
+  let quotaUnits = 0;
+
+  const search = await yt<YTSearchListResp>(
+    'search',
+    {
+      part: 'snippet',
+      type: 'video',
+      channelId: id,
+      order: 'viewCount',
+      maxResults: '10',
+    },
+    600,
+  );
+  quotaUnits += 100;
+
+  const videoIds = search.items
+    .map((item) => (item.id as { videoId?: string }).videoId)
+    .filter((vid): vid is string => Boolean(vid));
+  if (videoIds.length === 0) return { videos: [], quotaUnits };
+
+  const data = await yt<YTVideoListResp>(
+    'videos',
+    {
+      part: 'snippet,statistics,contentDetails',
+      id: videoIds.join(','),
+      maxResults: '50',
+    },
+    600,
+  );
+  quotaUnits += 1;
+
+  const videos: DiscoveredTopVideo[] = data.items.map((item) => ({
+    id: item.id,
+    title: item.snippet?.title || item.id,
+    thumbnail:
+      item.snippet?.thumbnails?.medium?.url ??
+      item.snippet?.thumbnails?.high?.url ??
+      item.snippet?.thumbnails?.default?.url ??
+      '',
+    publishedAt: item.snippet?.publishedAt || '',
+    viewCount: parseStat(item.statistics?.viewCount),
+    likeCount: parseStat(item.statistics?.likeCount),
+    commentCount: parseStat(item.statistics?.commentCount),
+    durationSec: parseDurationToSeconds(item.contentDetails?.duration),
+  }));
+
+  videos.sort((a, b) => {
+    const va = a.viewCount ?? -1;
+    const vb = b.viewCount ?? -1;
+    if (va !== vb) return vb - va;
+    const la = a.likeCount ?? -1;
+    const lb = b.likeCount ?? -1;
+    if (la !== lb) return lb - la;
+    const ca = a.commentCount ?? -1;
+    const cb = b.commentCount ?? -1;
+    return cb - ca;
+  });
+
+  return { videos: videos.slice(0, Math.max(1, limit)), quotaUnits };
 }
 
 export function sortDiscoveredChannelsByStats(channels: DiscoveredChannel[]): DiscoveredChannel[] {
