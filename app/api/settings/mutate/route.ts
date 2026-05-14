@@ -421,7 +421,13 @@ export async function POST(req: Request) {
       const searchId = String(body.searchId ?? '').trim();
       if (!searchId) return fail('Search ID missing.');
 
-      const store = await getCookieChannelStore();
+      const session = await getSession();
+      const cookieStore = await getCookieChannelStore();
+      const remote = session?.user
+        ? await readUserSyncState(session).catch(() => ({ state: null }))
+        : { state: null };
+      const store = remote.state ?? cookieStore;
+
       const exists = store.discoverSearches.some((item) => item.id === searchId);
       if (!exists) return fail('Search no longer exists.');
 
