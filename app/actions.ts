@@ -46,6 +46,8 @@ async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
       updatesChannelIds: driveData.updatesChannelIds,
       vocabs: driveData.vocabs,
       ignoredChannels: driveData.ignoredChannels,
+      discoverSearches: driveData.discoverSearches,
+      activeDiscoverSearchId: driveData.activeDiscoverSearchId,
     });
     await markCookieChannelStoreSynced(driveData.updatedAt);
   } else if (localMeta.updatedAt) {
@@ -206,6 +208,8 @@ export async function renameChannelSpaceAction(
     updatesChannelIds: store.updatesChannelIds,
     vocabs: store.vocabs,
     ignoredChannels: store.ignoredChannels,
+    discoverSearches: store.discoverSearches,
+    activeDiscoverSearchId: store.activeDiscoverSearchId,
   });
   await markCookieChannelStoreDirty();
 
@@ -237,6 +241,8 @@ export async function deleteChannelSpaceAction(spaceToDelete: string): Promise<{
     updatesChannelIds: store.updatesChannelIds,
     vocabs: store.vocabs,
     ignoredChannels: store.ignoredChannels,
+    discoverSearches: store.discoverSearches,
+    activeDiscoverSearchId: store.activeDiscoverSearchId,
   });
   await markCookieChannelStoreDirty();
 

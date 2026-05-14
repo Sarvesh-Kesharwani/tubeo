@@ -8,6 +8,8 @@ import {
   type DailyQuotaUsage,
   type ChannelPreference,
   type ChannelPreferenceStore,
+  type DiscoverSearchFilters,
+  type DiscoverSearchRecord,
   type DiscoveredChannel,
   type ViewPreferences,
   type VocabItem,
@@ -33,6 +35,8 @@ export interface DriveChannelData {
   updatesChannelIds?: string[];
   vocabs?: VocabItem[];
   ignoredChannels?: DiscoveredChannel[];
+  discoverSearches?: DiscoverSearchRecord[];
+  activeDiscoverSearchId?: string;
   quota?: DailyQuotaUsage;
   updatedAt: string; // ISO
 }
@@ -140,6 +144,54 @@ function normalizeIgnoredChannels(value: DiscoveredChannel[] | undefined): Disco
   return out;
 }
 
+function normalizeDiscoverFilters(value: Partial<DiscoverSearchFilters> | undefined): DiscoverSearchFilters {
+  return {
+    q: value?.q?.trim() ?? '',
+    order: value?.order?.trim() || 'relevance',
+    regionCode: value?.regionCode?.trim() ?? '',
+    relevanceLanguage: value?.relevanceLanguage?.trim() ?? '',
+    safeSearch: value?.safeSearch?.trim() || 'moderate',
+    channelType: value?.channelType?.trim() || 'any',
+    topicId: value?.topicId?.trim() ?? '',
+    publishedAfter: value?.publishedAfter?.trim() ?? '',
+    publishedBefore: value?.publishedBefore?.trim() ?? '',
+  };
+}
+
+function normalizeDiscoverSearches(value: DiscoverSearchRecord[] | undefined): DiscoverSearchRecord[] {
+  const seen = new Set<string>();
+  const out: DiscoverSearchRecord[] = [];
+
+  for (const item of value ?? []) {
+    const id = item?.id?.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      filters: normalizeDiscoverFilters(item.filters),
+      pages: (item.pages ?? [])
+        .map((page) => ({
+          pageNumber: Math.max(1, Math.floor(Number(page.pageNumber) || 1)),
+          pageToken: page.pageToken || undefined,
+          nextPageToken: page.nextPageToken || undefined,
+          channels: normalizeIgnoredChannels(page.channels),
+          hiddenIgnored: Math.max(0, Math.floor(Number(page.hiddenIgnored) || 0)),
+          quotaUnits: Math.max(0, Math.floor(Number(page.quotaUnits) || 0)),
+          searchedAt: page.searchedAt || item.updatedAt || new Date().toISOString(),
+        }))
+        .sort((a, b) => a.pageNumber - b.pageNumber),
+      activePage: Math.max(1, Math.floor(Number(item.activePage) || 1)),
+      createdAt: item.createdAt || new Date().toISOString(),
+      updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+    });
+  }
+
+  return out
+    .filter((item) => item.filters.q || item.pages.length > 0)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    .slice(0, 50);
+}
+
 function safeQuotaDate(now = new Date()): string {
   try {
     return new Intl.DateTimeFormat('en-CA', {
@@ -199,6 +251,8 @@ export function normalizeDriveChannelData(data: DriveChannelData | null): DriveS
     updatesChannelIds: normalizeUpdatesChannelIds(data.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
     vocabs: normalizeVocabs(data.vocabs),
     ignoredChannels: normalizeIgnoredChannels(data.ignoredChannels),
+    discoverSearches: normalizeDiscoverSearches(data.discoverSearches),
+    activeDiscoverSearchId: data.activeDiscoverSearchId,
     quota: normalizeQuotaUsage(data.quota),
     updatedAt: data.updatedAt ?? new Date(0).toISOString(),
   };
@@ -468,6 +522,8 @@ export async function restoreDriveBackup(
     updatesChannelIds: backup.updatesChannelIds,
     vocabs: backup.vocabs,
     ignoredChannels: backup.ignoredChannels,
+    discoverSearches: backup.discoverSearches,
+    activeDiscoverSearchId: backup.activeDiscoverSearchId,
     quota: backup.quota,
   });
 
@@ -534,6 +590,8 @@ export function buildDriveChannelData(store: DriveWriteState): DriveChannelData 
     updatesChannelIds: normalizeUpdatesChannelIds(store.updatesChannelIds, normalizedChannels.map((channel) => channel.id)),
     vocabs: normalizeVocabs(store.vocabs),
     ignoredChannels: normalizeIgnoredChannels(store.ignoredChannels),
+    discoverSearches: normalizeDiscoverSearches(store.discoverSearches),
+    activeDiscoverSearchId: store.activeDiscoverSearchId,
     quota: normalizedQuota,
     updatedAt: new Date().toISOString(),
   };
@@ -551,6 +609,7 @@ export async function recordDriveQuotaUsage(
     updatesChannelIds: [],
     vocabs: [],
     ignoredChannels: [],
+    discoverSearches: [],
   },
 ): Promise<DailyQuotaUsage> {
   const normalizedUnits = Math.max(0, Math.ceil(units));
@@ -564,6 +623,8 @@ export async function recordDriveQuotaUsage(
         updatesChannelIds: existing.updatesChannelIds,
         vocabs: existing.vocabs,
         ignoredChannels: existing.ignoredChannels,
+        discoverSearches: existing.discoverSearches,
+        activeDiscoverSearchId: existing.activeDiscoverSearchId,
       }
     : fallbackStore;
   const quota = normalizeQuotaUsage(existing?.quota);
@@ -581,6 +642,8 @@ export async function recordDriveQuotaUsage(
     updatesChannelIds: baseStore.updatesChannelIds,
     vocabs: baseStore.vocabs,
     ignoredChannels: baseStore.ignoredChannels,
+    discoverSearches: baseStore.discoverSearches,
+    activeDiscoverSearchId: baseStore.activeDiscoverSearchId,
     quota: nextQuota,
   });
 

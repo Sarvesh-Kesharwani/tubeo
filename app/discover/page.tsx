@@ -2,10 +2,13 @@ import { DiscoverChannelsClient } from '@/components/DiscoverChannelsClient';
 import { EmptyState } from '@/components/EmptyState';
 import { getCookieChannelStore } from '@/lib/channels-cookie';
 import { getSession } from '@/lib/session';
+import { readUserSyncState } from '@/lib/sync-store';
 
 export default async function DiscoverPage() {
   const session = await getSession();
-  const store = await getCookieChannelStore();
+  const cookieStore = await getCookieChannelStore();
+  const remote = session?.user ? await readUserSyncState(session).catch(() => ({ state: null })) : { state: null };
+  const store = remote.state ?? cookieStore;
 
   if (!session?.user) {
     return (
@@ -25,7 +28,11 @@ export default async function DiscoverPage() {
           Search YouTube channels, select channels to add under Uncategorized, or ignore channels so future searches skip them.
         </p>
       </section>
-      <DiscoverChannelsClient initialIgnored={store.ignoredChannels} />
+      <DiscoverChannelsClient
+        initialIgnored={store.ignoredChannels}
+        initialSearches={store.discoverSearches}
+        activeSearchId={store.activeDiscoverSearchId}
+      />
     </div>
   );
 }

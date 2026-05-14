@@ -36,6 +36,8 @@ export async function POST(req: Request) {
       updatesChannelIds: base.updatesChannelIds,
       vocabs: base.vocabs,
       ignoredChannels: base.ignoredChannels,
+      discoverSearches: base.discoverSearches,
+      activeDiscoverSearchId: base.activeDiscoverSearchId,
       quota: {
         ...quota,
         used: quota.used + units,

@@ -33,6 +33,7 @@ export async function GET() {
     updatesChannelIds: [],
     vocabs: [],
     ignoredChannels: [],
+    discoverSearches: [],
   };
   let remoteData = null;
   let source = 'none';
@@ -123,6 +124,8 @@ export async function POST() {
         updatesChannelIds: remoteData.updatesChannelIds,
         vocabs: mergedVocabs,
         ignoredChannels: remoteData.ignoredChannels,
+        discoverSearches: remoteData.discoverSearches,
+        activeDiscoverSearchId: remoteData.activeDiscoverSearchId,
       });
 
       let updatedAt = remoteData.updatedAt;
@@ -137,6 +140,8 @@ export async function POST() {
             updatesChannelIds: remoteData.updatesChannelIds,
             vocabs: mergedVocabs,
             ignoredChannels: remoteData.ignoredChannels,
+            discoverSearches: remoteData.discoverSearches,
+            activeDiscoverSearchId: remoteData.activeDiscoverSearchId,
             quota: remoteData.quota,
           });
           updatedAt = syncedAt;
@@ -169,6 +174,8 @@ export async function POST() {
       updatesChannelIds: cookieStore.updatesChannelIds,
       vocabs: cookieStore.vocabs,
       ignoredChannels: cookieStore.ignoredChannels,
+      discoverSearches: cookieStore.discoverSearches,
+      activeDiscoverSearchId: cookieStore.activeDiscoverSearchId,
       quota: remoteData?.quota,
     });
     await markCookieChannelStoreSynced(syncedAt);
@@ -219,6 +226,8 @@ export async function PUT() {
     updatesChannelIds: remoteData.updatesChannelIds,
     vocabs: remoteData.vocabs,
     ignoredChannels: remoteData.ignoredChannels,
+    discoverSearches: remoteData.discoverSearches,
+    activeDiscoverSearchId: remoteData.activeDiscoverSearchId,
   });
   await markCookieChannelStoreSynced(remoteData.updatedAt);
   await markDriveSyncHydrated();

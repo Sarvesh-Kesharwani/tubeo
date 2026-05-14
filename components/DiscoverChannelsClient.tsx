@@ -3,15 +3,21 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import type { DiscoveredChannel } from '@/lib/types';
+import Link from 'next/link';
+import type { DiscoverSearchFilters, DiscoverSearchRecord, DiscoveredChannel } from '@/lib/types';
 
 const CHANNELS_CHANGED_EVENT = 'tubeo-channels-changed';
 
 type SearchState = {
+  searchId?: string;
+  filters?: DiscoverSearchFilters;
+  searches: DiscoverSearchRecord[];
   channels: DiscoveredChannel[];
   ignoredChannels: DiscoveredChannel[];
   existingIds: string[];
   nextPageToken?: string;
+  pageNumber: number;
+  totalPagesCached: number;
   hiddenIgnored: number;
   quotaUnits: number;
   error?: string;
@@ -21,6 +27,9 @@ const EMPTY_STATE: SearchState = {
   channels: [],
   ignoredChannels: [],
   existingIds: [],
+  searches: [],
+  pageNumber: 1,
+  totalPagesCached: 0,
   hiddenIgnored: 0,
   quotaUnits: 0,
 };
@@ -78,18 +87,51 @@ function channelPayload(channel: DiscoveredChannel) {
   };
 }
 
-export function DiscoverChannelsClient({ initialIgnored }: { initialIgnored: DiscoveredChannel[] }) {
+function stateFromSearch(
+  searches: DiscoverSearchRecord[],
+  activeSearchId: string | undefined,
+  ignoredChannels: DiscoveredChannel[],
+): SearchState {
+  const active = searches.find((search) => search.id === activeSearchId) ?? searches[0];
+  const activePage = active?.pages.find((page) => page.pageNumber === active.activePage) ?? active?.pages[0];
+
+  return {
+    ...EMPTY_STATE,
+    searchId: active?.id,
+    filters: active?.filters,
+    searches,
+    ignoredChannels,
+    channels: activePage?.channels ?? [],
+    nextPageToken: activePage?.nextPageToken,
+    pageNumber: activePage?.pageNumber ?? 1,
+    totalPagesCached: active?.pages.length ?? 0,
+    hiddenIgnored: activePage?.hiddenIgnored ?? 0,
+    quotaUnits: activePage?.quotaUnits ?? 0,
+  };
+}
+
+export function DiscoverChannelsClient({
+  initialIgnored,
+  initialSearches,
+  activeSearchId,
+}: {
+  initialIgnored: DiscoveredChannel[];
+  initialSearches: DiscoverSearchRecord[];
+  activeSearchId?: string;
+}) {
   const router = useRouter();
-  const [query, setQuery] = useState('');
-  const [order, setOrder] = useState('relevance');
-  const [regionCode, setRegionCode] = useState('IN');
-  const [relevanceLanguage, setRelevanceLanguage] = useState('en');
-  const [safeSearch, setSafeSearch] = useState('moderate');
-  const [channelType, setChannelType] = useState('any');
-  const [topicId, setTopicId] = useState('');
-  const [publishedAfter, setPublishedAfter] = useState('');
-  const [publishedBefore, setPublishedBefore] = useState('');
-  const [state, setState] = useState<SearchState>({ ...EMPTY_STATE, ignoredChannels: initialIgnored });
+  const initialState = stateFromSearch(initialSearches, activeSearchId, initialIgnored);
+  const [query, setQuery] = useState(initialState.filters?.q ?? '');
+  const [order, setOrder] = useState(initialState.filters?.order || 'relevance');
+  const [regionCode, setRegionCode] = useState(initialState.filters?.regionCode || 'IN');
+  const [relevanceLanguage, setRelevanceLanguage] = useState(initialState.filters?.relevanceLanguage || 'en');
+  const [safeSearch, setSafeSearch] = useState(initialState.filters?.safeSearch || 'moderate');
+  const [channelType, setChannelType] = useState(initialState.filters?.channelType || 'any');
+  const [topicId, setTopicId] = useState(initialState.filters?.topicId || '');
+  const [publishedAfter, setPublishedAfter] = useState(initialState.filters?.publishedAfter?.slice(0, 10) || '');
+  const [publishedBefore, setPublishedBefore] = useState(initialState.filters?.publishedBefore?.slice(0, 10) || '');
+  const [pageDraft, setPageDraft] = useState(String(initialState.pageNumber));
+  const [state, setState] = useState<SearchState>(initialState);
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [statsWorkingId, setStatsWorkingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -100,9 +142,38 @@ export function DiscoverChannelsClient({ initialIgnored }: { initialIgnored: Dis
     setState((current) => ({ ...current, ignoredChannels: initialIgnored }));
   }, [initialIgnored]);
 
-  async function runSearch(pageToken?: string) {
+  function applyResponse(data: Record<string, any>) {
+    const nextFilters = data.filters as DiscoverSearchFilters | undefined;
+    if (nextFilters) {
+      setQuery(nextFilters.q);
+      setOrder(nextFilters.order || 'relevance');
+      setRegionCode(nextFilters.regionCode || '');
+      setRelevanceLanguage(nextFilters.relevanceLanguage || '');
+      setSafeSearch(nextFilters.safeSearch || 'moderate');
+      setChannelType(nextFilters.channelType || 'any');
+      setTopicId(nextFilters.topicId || '');
+      setPublishedAfter(nextFilters.publishedAfter ? nextFilters.publishedAfter.slice(0, 10) : '');
+      setPublishedBefore(nextFilters.publishedBefore ? nextFilters.publishedBefore.slice(0, 10) : '');
+    }
+    setPageDraft(String(data.pageNumber ?? 1));
+    setState({
+      searchId: data.searchId,
+      filters: nextFilters,
+      searches: data.searches ?? [],
+      channels: data.channels ?? [],
+      ignoredChannels: data.ignoredChannels ?? [],
+      existingIds: data.existingIds ?? [],
+      nextPageToken: data.nextPageToken,
+      pageNumber: data.pageNumber ?? 1,
+      totalPagesCached: data.totalPagesCached ?? 0,
+      hiddenIgnored: data.hiddenIgnored ?? 0,
+      quotaUnits: data.quotaUnits ?? 0,
+    });
+  }
+
+  async function runSearch(options?: { historyId?: string; page?: number; newSearch?: boolean }) {
     if (!query.trim()) {
-      setState((current) => ({ ...current, channels: [], error: 'Enter a keyword first.' }));
+      setState((current) => ({ ...current, error: 'Enter a keyword first.' }));
       return;
     }
 
@@ -117,7 +188,8 @@ export function DiscoverChannelsClient({ initialIgnored }: { initialIgnored: Dis
     if (topicId) params.set('topicId', topicId);
     if (publishedAfter) params.set('publishedAfter', new Date(`${publishedAfter}T00:00:00Z`).toISOString());
     if (publishedBefore) params.set('publishedBefore', new Date(`${publishedBefore}T23:59:59Z`).toISOString());
-    if (pageToken) params.set('pageToken', pageToken);
+    if (options?.historyId && !options.newSearch) params.set('historyId', options.historyId);
+    if (options?.page) params.set('page', String(options.page));
 
     setState((current) => ({ ...current, error: undefined }));
     startTransition(async () => {
@@ -128,14 +200,7 @@ export function DiscoverChannelsClient({ initialIgnored }: { initialIgnored: Dis
           setState((current) => ({ ...current, error: data.error ?? 'Search failed.' }));
           return;
         }
-        setState({
-          channels: data.channels ?? [],
-          ignoredChannels: data.ignoredChannels ?? [],
-          existingIds: data.existingIds ?? [],
-          nextPageToken: data.nextPageToken,
-          hiddenIgnored: data.hiddenIgnored ?? 0,
-          quotaUnits: data.quotaUnits ?? 0,
-        });
+        applyResponse(data);
       } catch {
         setState((current) => ({ ...current, error: 'Search failed.' }));
       }
@@ -244,11 +309,19 @@ export function DiscoverChannelsClient({ initialIgnored }: { initialIgnored: Dis
   return (
     <div className="space-y-6">
       <section className="card p-4 sm:p-5 space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Link href="/discover/history" className="btn-duo-blue px-3 py-2 text-xs">
+            Previous searches
+          </Link>
+          <Link href="/discover/lists" className="btn-duo-ghost px-3 py-2 text-xs">
+            Blocked / allowed
+          </Link>
+        </div>
         <form
           className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto]"
           onSubmit={(event) => {
             event.preventDefault();
-            void runSearch();
+            void runSearch({ newSearch: true, page: 1 });
           }}
         >
           <input
@@ -306,7 +379,7 @@ export function DiscoverChannelsClient({ initialIgnored }: { initialIgnored: Dis
         </div>
 
         <div className="flex flex-wrap gap-2 text-xs font-extrabold text-duo-ink/60">
-          <span className="chip cursor-default">Shows first 50 visible channels</span>
+          <span className="chip cursor-default">Page {state.pageNumber} of cached {Math.max(1, state.totalPagesCached)}</span>
           <span className="chip cursor-default">{state.hiddenIgnored} ignored hidden</span>
           <span className="chip cursor-default">{state.quotaUnits} quota units</span>
         </div>
@@ -317,11 +390,25 @@ export function DiscoverChannelsClient({ initialIgnored }: { initialIgnored: Dis
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-extrabold text-duo-ink">Search results</h2>
-            {state.nextPageToken && (
-              <button className="btn-duo-blue px-3 py-2 text-xs" disabled={isPending} onClick={() => void runSearch(state.nextPageToken)}>
-                Next 50
+            <div className="flex flex-wrap items-center gap-2">
+              <button className="btn-duo-ghost px-3 py-2 text-xs" disabled={isPending || !state.searchId} onClick={() => void runSearch({ historyId: state.searchId, page: 1 })}>
+                First 50
               </button>
-            )}
+              {state.nextPageToken && (
+                <button className="btn-duo-blue px-3 py-2 text-xs" disabled={isPending || !state.searchId} onClick={() => void runSearch({ historyId: state.searchId, page: state.pageNumber + 1 })}>
+                  Next 50
+                </button>
+              )}
+              <input
+                value={pageDraft}
+                onChange={(event) => setPageDraft(event.target.value.replace(/\D/g, '').slice(0, 2))}
+                className="h-10 w-16 rounded-2xl border-2 border-duo-border px-3 text-center text-sm font-extrabold"
+                aria-label="Page number"
+              />
+              <button className="btn-duo-ghost px-3 py-2 text-xs" disabled={isPending || !state.searchId} onClick={() => void runSearch({ historyId: state.searchId, page: Math.max(1, Number(pageDraft) || 1) })}>
+                Go
+              </button>
+            </div>
           </div>
 
           {state.channels.length === 0 ? (

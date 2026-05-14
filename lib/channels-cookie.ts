@@ -6,6 +6,8 @@ import {
   vocabIdFromWord,
   type ChannelPreference,
   type ChannelPreferenceStore,
+  type DiscoverSearchFilters,
+  type DiscoverSearchRecord,
   type DiscoveredChannel,
   type ViewPreferences,
   type VocabItem,
@@ -21,7 +23,7 @@ const LOCAL_UPDATED_COOKIE = 'tubeo_channels_updated_at';
 const LOCAL_DIRTY_COOKIE = 'tubeo_channels_dirty';
 const MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 const EPOCH = new Date(0).toISOString();
-const COOKIE_CHUNK_SIZE = 3000;
+const COOKIE_CHUNK_SIZE = 1500;
 const COOKIE_OPTIONS = {
   maxAge: MAX_AGE,
   path: '/',
@@ -111,6 +113,55 @@ function normalizeIgnoredChannels(value: DiscoveredChannel[] | undefined): Disco
   return out;
 }
 
+function normalizeDiscoverFilters(value: Partial<DiscoverSearchFilters> | undefined): DiscoverSearchFilters {
+  return {
+    q: value?.q?.trim() ?? '',
+    order: value?.order?.trim() || 'relevance',
+    regionCode: value?.regionCode?.trim() ?? '',
+    relevanceLanguage: value?.relevanceLanguage?.trim() ?? '',
+    safeSearch: value?.safeSearch?.trim() || 'moderate',
+    channelType: value?.channelType?.trim() || 'any',
+    topicId: value?.topicId?.trim() ?? '',
+    publishedAfter: value?.publishedAfter?.trim() ?? '',
+    publishedBefore: value?.publishedBefore?.trim() ?? '',
+  };
+}
+
+function normalizeDiscoverSearches(value: DiscoverSearchRecord[] | undefined): DiscoverSearchRecord[] {
+  const seen = new Set<string>();
+  const out: DiscoverSearchRecord[] = [];
+
+  for (const item of value ?? []) {
+    const id = item?.id?.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const pages = (item.pages ?? [])
+      .map((page) => ({
+        pageNumber: Math.max(1, Math.floor(Number(page.pageNumber) || 1)),
+        pageToken: page.pageToken || undefined,
+        nextPageToken: page.nextPageToken || undefined,
+        channels: normalizeIgnoredChannels(page.channels),
+        hiddenIgnored: Math.max(0, Math.floor(Number(page.hiddenIgnored) || 0)),
+        quotaUnits: Math.max(0, Math.floor(Number(page.quotaUnits) || 0)),
+        searchedAt: page.searchedAt || item.updatedAt || new Date().toISOString(),
+      }))
+      .sort((a, b) => a.pageNumber - b.pageNumber);
+    out.push({
+      id,
+      filters: normalizeDiscoverFilters(item.filters),
+      pages,
+      activePage: Math.max(1, Math.floor(Number(item.activePage) || 1)),
+      createdAt: item.createdAt || new Date().toISOString(),
+      updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+    });
+  }
+
+  return out
+    .filter((item) => item.filters.q || item.pages.length > 0)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    .slice(0, 50);
+}
+
 function normalizeStore(store: ChannelPreferenceStore): ChannelPreferenceStore {
   const channels = dedupePreferences(store.channels);
   const spaces = dedupeSpaces([
@@ -123,8 +174,12 @@ function normalizeStore(store: ChannelPreferenceStore): ChannelPreferenceStore {
   const updatesChannelIds = normalizeUpdatesChannelIds(store.updatesChannelIds, channels.map((channel) => channel.id));
   const vocabs = normalizeVocabs(store.vocabs);
   const ignoredChannels = normalizeIgnoredChannels(store.ignoredChannels);
+  const discoverSearches = normalizeDiscoverSearches(store.discoverSearches);
+  const activeDiscoverSearchId = discoverSearches.some((search) => search.id === store.activeDiscoverSearchId)
+    ? store.activeDiscoverSearchId
+    : discoverSearches[0]?.id;
 
-  return { channels, spaces, view, viewUpdatedAt, updatesChannelIds, vocabs, ignoredChannels };
+  return { channels, spaces, view, viewUpdatedAt, updatesChannelIds, vocabs, ignoredChannels, discoverSearches, activeDiscoverSearchId };
 }
 
 function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
@@ -138,6 +193,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       updatesChannelIds: [],
       vocabs: [],
       ignoredChannels: [],
+      discoverSearches: [],
     };
   }
 
@@ -154,6 +210,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       updatesChannelIds: [],
       vocabs: [],
       ignoredChannels: [],
+      discoverSearches: [],
     });
   }
 
@@ -167,6 +224,8 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
           updatesChannelIds?: string[];
           vocabs?: VocabItem[];
           ignoredChannels?: DiscoveredChannel[];
+          discoverSearches?: DiscoverSearchRecord[];
+          activeDiscoverSearchId?: string;
         }
       | Array<{ id?: string; space?: string }>
       | null;
@@ -189,6 +248,8 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       updatesChannelIds: Array.isArray(parsed) ? [] : parsed?.updatesChannelIds ?? [],
       vocabs: Array.isArray(parsed) ? [] : parsed?.vocabs ?? [],
       ignoredChannels: Array.isArray(parsed) ? [] : parsed?.ignoredChannels ?? [],
+      discoverSearches: Array.isArray(parsed) ? [] : parsed?.discoverSearches ?? [],
+      activeDiscoverSearchId: Array.isArray(parsed) ? undefined : parsed?.activeDiscoverSearchId,
     });
   } catch {
     return {
@@ -199,6 +260,7 @@ function parseCookieChannelStore(raw: string): ChannelPreferenceStore {
       updatesChannelIds: [],
       vocabs: [],
       ignoredChannels: [],
+      discoverSearches: [],
     };
   }
 }
@@ -257,7 +319,12 @@ export async function setCookieChannelIds(ids: string[]): Promise<void> {
 
 export async function setCookieChannelStore(store: ChannelPreferenceStore): Promise<void> {
   const jar = await cookies();
-  const value = JSON.stringify(normalizeStore(store));
+  const normalized = normalizeStore(store);
+  const value = JSON.stringify({
+    ...normalized,
+    discoverSearches: [],
+    activeDiscoverSearchId: normalized.activeDiscoverSearchId,
+  });
   const chunks = value.match(new RegExp(`.{1,${COOKIE_CHUNK_SIZE}}`, 'g')) ?? [''];
 
   clearCookieStoreChunks(jar);
@@ -327,6 +394,8 @@ export async function setCookieChannelPreferences(channels: ChannelPreference[])
     updatesChannelIds: existing.updatesChannelIds,
     vocabs: existing.vocabs,
     ignoredChannels: existing.ignoredChannels,
+    discoverSearches: existing.discoverSearches,
+    activeDiscoverSearchId: existing.activeDiscoverSearchId,
   });
 }
 
@@ -340,6 +409,8 @@ export async function setCookieChannelSpaces(spaces: string[]): Promise<void> {
     updatesChannelIds: existing.updatesChannelIds,
     vocabs: existing.vocabs,
     ignoredChannels: existing.ignoredChannels,
+    discoverSearches: existing.discoverSearches,
+    activeDiscoverSearchId: existing.activeDiscoverSearchId,
   });
 }
 
@@ -353,6 +424,8 @@ export async function setCookieViewPreferences(view: ViewPreferences, viewUpdate
     updatesChannelIds: existing.updatesChannelIds,
     vocabs: existing.vocabs,
     ignoredChannels: existing.ignoredChannels,
+    discoverSearches: existing.discoverSearches,
+    activeDiscoverSearchId: existing.activeDiscoverSearchId,
   });
 }
 

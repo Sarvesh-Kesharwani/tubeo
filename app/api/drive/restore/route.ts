@@ -84,6 +84,8 @@ export async function POST(req: Request) {
     updatesChannelIds: restored.updatesChannelIds,
     vocabs: restored.vocabs,
     ignoredChannels: restored.ignoredChannels,
+    discoverSearches: restored.discoverSearches,
+    activeDiscoverSearchId: restored.activeDiscoverSearchId,
     quota: restored.quota,
   });
   await setCookieChannelStore({
@@ -94,6 +96,8 @@ export async function POST(req: Request) {
     updatesChannelIds: restored.updatesChannelIds,
     vocabs: restored.vocabs,
     ignoredChannels: restored.ignoredChannels,
+    discoverSearches: restored.discoverSearches,
+    activeDiscoverSearchId: restored.activeDiscoverSearchId,
   });
   await markCookieChannelStoreSynced(restoredAt);
   await markDriveSyncHydrated();
@@ -115,6 +119,7 @@ export async function POST(req: Request) {
       vocabs: restored.vocabs.length,
       updatesChannelIds: restored.updatesChannelIds.length,
       ignoredChannels: restored.ignoredChannels.length,
+      discoverSearches: restored.discoverSearches.length,
     },
   });
 }

@@ -29,6 +29,37 @@ export interface DiscoveredChannel {
   country?: string;
 }
 
+export interface DiscoverSearchFilters {
+  q: string;
+  order: string;
+  regionCode: string;
+  relevanceLanguage: string;
+  safeSearch: string;
+  channelType: string;
+  topicId: string;
+  publishedAfter: string;
+  publishedBefore: string;
+}
+
+export interface DiscoverSearchPage {
+  pageNumber: number;
+  pageToken?: string;
+  nextPageToken?: string;
+  channels: DiscoveredChannel[];
+  hiddenIgnored: number;
+  quotaUnits: number;
+  searchedAt: string;
+}
+
+export interface DiscoverSearchRecord {
+  id: string;
+  filters: DiscoverSearchFilters;
+  pages: DiscoverSearchPage[];
+  activePage: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MixedFeedViewPreferences {
   range: TimeRange;
   media: MediaFilter;
@@ -71,6 +102,8 @@ export interface ChannelPreferenceStore {
   updatesChannelIds: string[];
   vocabs: VocabItem[];
   ignoredChannels: DiscoveredChannel[];
+  discoverSearches: DiscoverSearchRecord[];
+  activeDiscoverSearchId?: string;
 }
 
 export interface DailyQuotaUsage {

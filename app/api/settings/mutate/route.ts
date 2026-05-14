@@ -53,6 +53,8 @@ async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
       updatesChannelIds: driveData.updatesChannelIds,
       vocabs: driveData.vocabs,
       ignoredChannels: driveData.ignoredChannels,
+      discoverSearches: driveData.discoverSearches,
+      activeDiscoverSearchId: driveData.activeDiscoverSearchId,
     });
     await markCookieChannelStoreSynced(driveData.updatedAt);
   } else if (localMeta.updatedAt) {
@@ -135,6 +137,8 @@ async function persistChannelStore(store: ChannelPreferenceStore): Promise<boole
       updatesChannelIds: store.updatesChannelIds,
       vocabs: store.vocabs,
       ignoredChannels: store.ignoredChannels,
+      discoverSearches: store.discoverSearches,
+      activeDiscoverSearchId: store.activeDiscoverSearchId,
       quota: driveData?.quota,
     });
     await markCookieChannelStoreSynced(syncedAt);
@@ -253,6 +257,8 @@ export async function POST(req: Request) {
         updatesChannelIds: store.updatesChannelIds,
         vocabs: store.vocabs,
         ignoredChannels: store.ignoredChannels,
+        discoverSearches: store.discoverSearches,
+        activeDiscoverSearchId: store.activeDiscoverSearchId,
       });
       await markCookieChannelStoreDirty();
       return ok({ success: renamedSpace });
@@ -277,6 +283,8 @@ export async function POST(req: Request) {
         updatesChannelIds: store.updatesChannelIds,
         vocabs: store.vocabs,
         ignoredChannels: store.ignoredChannels,
+        discoverSearches: store.discoverSearches,
+        activeDiscoverSearchId: store.activeDiscoverSearchId,
       });
       await markCookieChannelStoreDirty();
       return ok({ success: targetSpace });
