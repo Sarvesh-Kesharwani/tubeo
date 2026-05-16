@@ -2,7 +2,7 @@
 
 export type TimeRange = '1d' | '3d' | '7d' | '30d' | '180d' | '365d' | 'all';
 export type MediaFilter = 'all' | 'videos' | 'shorts';
-export type DurationFilter = 'all' | 'under5' | 'under15' | 'over15';
+export type DurationFilter = 'all' | 'under5' | '5to15' | '15to30' | '30to60' | '60to120' | 'over120';
 export const DEFAULT_CHANNEL_SPACE = 'ALL';
 export const CHANNELS_OVERVIEW_SPACE = 'all';
 
