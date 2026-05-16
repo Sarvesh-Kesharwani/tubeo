@@ -3,14 +3,9 @@ import { WatchListClient } from '@/components/WatchListClient';
 import {
   getCookieSavedVideos,
   getSavedVideoKind,
-  hydrateSavedVideosFromDriveIfNeeded,
-  persistSavedVideos,
 } from '@/lib/saved-videos';
-import { readInstagramInboxSavedVideos } from '@/lib/instagram';
-import { fetchLinkNestSavedLinks, importLinkNestRows } from '@/lib/linknest-import';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
-import { getVideosByIds } from '@/lib/youtube';
 import type { Video } from '@/lib/types';
 
 function fallbackYouTubeVideo(id: string): Video {
@@ -36,40 +31,10 @@ export default async function VideosPage() {
     );
   }
 
-  await hydrateSavedVideosFromDriveIfNeeded(session.accessToken);
-  const [cookieSaved, inboxSaved] = await Promise.all([
-    getCookieSavedVideos(),
-    readInstagramInboxSavedVideos(),
-  ]);
-  let saved = cookieSaved;
-  try {
-    const rows = await fetchLinkNestSavedLinks();
-    const imported = importLinkNestRows(saved, rows);
-    if (imported.imported.length > 0 || imported.updated > 0) {
-      saved = imported.videos;
-      await persistSavedVideos(saved, session.accessToken);
-    }
-  } catch {
-    // Keep the page usable if LinkNest is temporarily unavailable.
-  }
-
-  const existingIds = new Set(saved.map((video) => video.id));
-  const newInboxSaved = inboxSaved.filter((video) => !existingIds.has(video.id));
-  saved = newInboxSaved.length > 0 ? [...newInboxSaved, ...saved] : saved;
-
-  if (newInboxSaved.length > 0) {
-    await persistSavedVideos(saved, session.accessToken);
-  }
+  const saved = await getCookieSavedVideos();
 
   const ytIds = saved.filter((video) => getSavedVideoKind(video) === 'youtube').map((video) => video.id);
-  let videos: Video[] = [];
-  try {
-    videos = await getVideosByIds(ytIds);
-  } catch {
-    videos = [];
-  }
-  const fetched = new Set(videos.map((video) => video.id));
-  const videosWithFallbacks = [...videos, ...ytIds.filter((id) => !fetched.has(id)).map(fallbackYouTubeVideo)];
+  const videosWithFallbacks = ytIds.map(fallbackYouTubeVideo);
 
   return (
     <div className="space-y-6">

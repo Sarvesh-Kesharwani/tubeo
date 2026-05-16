@@ -44,6 +44,12 @@ function savedKey(videos: SavedVideo[]): string {
     .join('|');
 }
 
+function mergeVideoDetails(current: Video[], incoming: Video[]): Video[] {
+  const byId = new Map(current.map((video) => [video.id, video]));
+  for (const video of incoming) byId.set(video.id, video);
+  return [...byId.values()];
+}
+
 function getInstagramEmbedSrc(saved: SavedVideo, autoplay = false): string | null {
   if (getSavedVideoKind(saved) !== 'instagram') return null;
   const type = saved.url.includes('/reel/') ? 'reel' : 'p';
@@ -79,6 +85,7 @@ export function WatchListClient({
       category: normalizeSavedVideoCategory(video.category),
     })),
   );
+  const [videoDetails, setVideoDetails] = useState(videos);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(initialSaved.map((video) => [video.id, video.note])),
   );
@@ -96,8 +103,13 @@ export function WatchListClient({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const initialKey = useRef(savedKey(initialSaved));
+  const didRefreshSources = useRef(false);
   const feedViewportRef = useRef<HTMLDivElement>(null);
   const feedItemRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  useEffect(() => {
+    setVideoDetails((current) => mergeVideoDetails(current, videos));
+  }, [videos]);
 
   useEffect(() => {
     const key = savedKey(initialSaved);
@@ -110,7 +122,7 @@ export function WatchListClient({
     }));
   }, [initialSaved]);
 
-  const videoById = useMemo(() => new Map(videos.map((video) => [video.id, video])), [videos]);
+  const videoById = useMemo(() => new Map(videoDetails.map((video) => [video.id, video])), [videoDetails]);
   const sorted = useMemo(
     () =>
       [...saved].sort((a, b) => {
@@ -147,6 +159,56 @@ export function WatchListClient({
       normalizeSavedVideoCategory(video.category) === UNCATEGORIZED_SAVED_CATEGORY &&
       video.note.trim(),
   ).length;
+
+  useEffect(() => {
+    const missingIds = sorted
+      .filter((video) => {
+        if (getSavedVideoKind(video) !== 'youtube') return false;
+        const details = videoById.get(video.id);
+        return !details || details.title === `YouTube video ${video.id}`;
+      })
+      .map((video) => video.id)
+      .slice(0, 50);
+    if (missingIds.length === 0) return;
+
+    const controller = new AbortController();
+    fetch(`/api/saved-videos/metadata?ids=${encodeURIComponent(missingIds.join(','))}`, {
+      signal: controller.signal,
+    })
+      .then((response) => response.json())
+      .then((data: { videos?: Video[] }) => {
+        if (data.videos?.length) {
+          setVideoDetails((current) => mergeVideoDetails(current, data.videos ?? []));
+        }
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, [sorted, videoById]);
+
+  useEffect(() => {
+    if (didRefreshSources.current) return;
+    didRefreshSources.current = true;
+
+    const controller = new AbortController();
+    fetch('/api/saved-videos/refresh', { method: 'POST', signal: controller.signal })
+      .then((response) => response.json())
+      .then((data: { videos?: SavedVideo[] }) => {
+        if (!data.videos?.length) return;
+        const nextVideos = data.videos.map((video) => ({
+          ...video,
+          category: normalizeSavedVideoCategory(video.category),
+        }));
+        setSaved((current) => mergeById(current, nextVideos));
+        setNoteDrafts((current) => ({
+          ...Object.fromEntries(nextVideos.map((video) => [video.id, video.note])),
+          ...current,
+        }));
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (!feedOpen) {
