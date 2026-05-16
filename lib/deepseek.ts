@@ -23,6 +23,10 @@ interface ChatCompletion {
   }>;
 }
 
+function describeUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function getDeepSeekApiKey(): string {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) {
@@ -42,23 +46,29 @@ async function runDeepSeekChat({
 }): Promise<string> {
   const apiKey = getDeepSeekApiKey();
 
-  const res = await fetch(DEEPSEEK_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      temperature: 0.2,
-      max_tokens: maxTokens,
-      stream: false,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(DEEPSEEK_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        temperature: 0.2,
+        max_tokens: maxTokens,
+        response_format: { type: 'json_object' },
+        stream: false,
+      }),
+    });
+  } catch (error) {
+    throw new DeepSeekRequestError(`DeepSeek request failed: ${describeUnknownError(error)}`, 502);
+  }
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
@@ -106,13 +116,29 @@ export interface SavedVideoCategorization {
   category: string;
 }
 
-function parseJsonObject(text: string): unknown {
+function parseJsonPayload(text: string): unknown {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
   try {
-    return JSON.parse(text);
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new DeepSeekRequestError('DeepSeek returned invalid JSON.', 502);
-    return JSON.parse(match[0]);
+    return JSON.parse(cleaned);
+  } catch (directError) {
+    const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (!match) {
+      throw new DeepSeekRequestError('DeepSeek returned invalid JSON.', 502);
+    }
+
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      throw new DeepSeekRequestError(
+        `DeepSeek returned malformed JSON: ${describeUnknownError(directError)}`,
+        502,
+      );
+    }
   }
 }
 
@@ -146,11 +172,12 @@ export async function categorizeSavedVideos(
   });
 
   const content = await runDeepSeekChat({ system, user, maxTokens: 700 });
-  const parsed = parseJsonObject(content) as {
-    items?: Array<{ id?: unknown; category?: unknown }>;
-  };
+  const parsed = parseJsonPayload(content) as
+    | { items?: Array<{ id?: unknown; category?: unknown }> }
+    | Array<{ id?: unknown; category?: unknown }>;
+  const itemsPayload = Array.isArray(parsed) ? parsed : parsed.items;
 
-  return (parsed.items ?? [])
+  return (itemsPayload ?? [])
     .map((item) => ({
       id: typeof item.id === 'string' ? item.id.trim() : '',
       category: typeof item.category === 'string' ? item.category.trim() : '',

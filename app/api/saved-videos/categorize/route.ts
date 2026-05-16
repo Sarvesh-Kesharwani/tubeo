@@ -58,6 +58,7 @@ export async function POST() {
     if (error instanceof DeepSeekRequestError) {
       return Response.json({ ok: false, error: error.message }, { status: error.status });
     }
+    console.error('Saved video categorization failed', error);
     return Response.json({ ok: false, error: 'Failed to categorize saved videos.' }, { status: 500 });
   }
 }
