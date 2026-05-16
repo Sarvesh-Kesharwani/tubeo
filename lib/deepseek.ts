@@ -127,8 +127,14 @@ export interface SavedVideoNoteSearchResult {
   reason: string;
 }
 
+export interface VideoTranscriptSummaryInput {
+  videoId: string;
+  transcript: string;
+}
+
 const FALLBACK_SAVED_VIDEO_CATEGORY = 'Watch Later';
 const CATEGORIZATION_BATCH_SIZE = 12;
+const MAX_TRANSCRIPT_CHARS = 90_000;
 
 function parseJsonPayload(text: string): unknown {
   const cleaned = text
@@ -274,7 +280,7 @@ export async function searchSavedVideosByNote(
     query: cleaned,
     rules: [
       'Search note text only.',
-      'Include item only when confidence is greater than 75.',
+      'Include item only when confidence is greater than or equal to 50.',
       'Sort by confidence descending.',
       'Reason must be short and based only on note text.',
     ],
@@ -299,11 +305,50 @@ export async function searchSavedVideosByNote(
         reason: typeof item.reason === 'string' ? item.reason.trim() : '',
       };
     })
-    .filter((item) => item.id && Number.isFinite(item.confidence) && item.confidence > 75)
+    .filter((item) => item.id && Number.isFinite(item.confidence) && item.confidence >= 50)
     .map((item) => ({
       id: item.id,
       confidence: Math.max(0, Math.min(100, Math.round(item.confidence))),
       reason: item.reason.slice(0, 160),
     }))
     .sort((a, b) => b.confidence - a.confidence);
+}
+
+export async function summarizeTranscriptForCitizen({
+  videoId,
+  transcript,
+}: VideoTranscriptSummaryInput): Promise<string[]> {
+  const cleaned = transcript.replace(/\s+/g, ' ').trim();
+  if (!cleaned) {
+    throw new DeepSeekRequestError('Transcript is empty.', 400);
+  }
+
+  const system =
+    'You summarize a YouTube video transcript for an everyday citizen/viewer. ' +
+    'Focus only on practical life impact: prices, bills, travel costs, rules, jobs, deadlines, benefits, risks, safety, health, or money. ' +
+    'Write concrete bullet points with the important fact first. ' +
+    'Do not include generic video commentary, intro, outro, sponsor, or vague opinions. ' +
+    'Return strict JSON only with shape {"bullets":["..."]}. No markdown, no comments, no extra keys.';
+
+  const user = JSON.stringify({
+    videoId,
+    instruction:
+      'Get a bullet point summary of what is important to the citizen/viewer in his life. Examples: petrol price increased 20 rupees; flights will cost more by a stated amount.',
+    transcript: cleaned.slice(0, MAX_TRANSCRIPT_CHARS),
+  });
+
+  const content = await runDeepSeekChat({ system, user, maxTokens: 900 });
+  const parsed = parseJsonPayload(content) as { bullets?: unknown } | string[];
+  const rawBullets = Array.isArray(parsed) ? parsed : parsed.bullets;
+
+  const bullets = (Array.isArray(rawBullets) ? rawBullets : [])
+    .map((item) => (typeof item === 'string' ? item.replace(/\s+/g, ' ').trim() : ''))
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (bullets.length === 0) {
+    throw new DeepSeekRequestError('DeepSeek returned no summary bullets.', 502);
+  }
+
+  return bullets;
 }

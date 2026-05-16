@@ -1,9 +1,9 @@
 import { Suspense } from 'react';
-import { ChannelRow } from '@/components/ChannelRow';
 import { EmptyState } from '@/components/EmptyState';
 import { InstagramChannelRow } from '@/components/InstagramChannelRow';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { QuotaUsageTracker } from '@/components/QuotaUsageTracker';
+import { SpaceVideoBuckets } from '@/components/SpaceVideoBuckets';
 import { SpaceTabs } from '@/components/SpaceTabs';
 import { TimeFilter } from '@/components/TimeFilter';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
@@ -19,6 +19,7 @@ import {
 } from '@/lib/instagram';
 import { parseRange } from '@/lib/time';
 import { CHANNELS_OVERVIEW_SPACE, DEFAULT_CHANNEL_SPACE } from '@/lib/types';
+import type { ChannelWithVideos } from '@/lib/types';
 import { getChannelGroupedFeedWithQuota } from '@/lib/youtube';
 import { getWhitelistedChannelPreferences, getWhitelistedChannelSpaces } from '@/lib/whitelist';
 
@@ -155,17 +156,20 @@ async function Grouped({
       item.space === activeSpaceValue ||
       (!item.space && activeSpaceValue === DEFAULT_CHANNEL_SPACE),
   );
+  const countVideos = (spaceGroups: ChannelWithVideos[]) =>
+    spaceGroups.reduce((sum, group) => sum + group.videos.length, 0);
+  const groupsForSpace = (space: string) => visibleGroups.filter((group) => group.space === space);
 
   const tabs = [
     {
       value: CHANNELS_OVERVIEW_SPACE,
       label: DEFAULT_CHANNEL_SPACE,
-      count: visibleGroups.length + instagramChannels.length,
+      count: countVideos(visibleGroups) + instagramChannels.length,
     },
     ...orderedSpaces.filter((space) => space !== DEFAULT_CHANNEL_SPACE).map((space) => ({
       value: space,
       label: space,
-      count: visibleGroups.filter((group) => group.space === space).length + instagramCountForSpace(space),
+      count: countVideos(groupsForSpace(space)) + instagramCountForSpace(space),
     })),
   ];
 
@@ -194,7 +198,8 @@ async function Grouped({
       {activeSpaceValue === CHANNELS_OVERVIEW_SPACE ? (
         <div className="space-y-4">
           {orderedSpaces.map((space) => {
-            const spaceGroups = visibleGroups.filter((group) => group.space === space);
+            const spaceGroups = groupsForSpace(space);
+            const videoCount = countVideos(spaceGroups);
 
             return (
               <details
@@ -204,21 +209,11 @@ async function Grouped({
               >
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-extrabold text-duo-ink">
                   <span>{space}</span>
-                  <span className="chip cursor-default">{spaceGroups.length}</span>
+                  <span className="chip cursor-default">{videoCount}</span>
                 </summary>
 
                 <div className="border-t-2 border-duo-border px-4 py-4">
-                  {spaceGroups.length === 0 ? (
-                    <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/50 px-4 py-5 text-sm font-semibold text-duo-mute">
-                      No channels in this space for the current filter.
-                    </div>
-                  ) : (
-                    <div className="space-y-8">
-                      {spaceGroups.map((group) => (
-                        <ChannelRow key={group.channel.id} data={group} now={now} />
-                      ))}
-                    </div>
-                  )}
+                  <SpaceVideoBuckets groups={spaceGroups} now={now} />
                 </div>
               </details>
             );
@@ -231,11 +226,7 @@ async function Grouped({
           description="Move channels into this space or switch between videos and shorts."
         />
       ) : (
-        <div className="space-y-8">
-          {filteredGroups.map((group) => (
-            <ChannelRow key={group.channel.id} data={group} now={now} />
-          ))}
-        </div>
+        <SpaceVideoBuckets groups={filteredGroups} now={now} />
       )}
     </div>
   );

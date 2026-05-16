@@ -15,6 +15,7 @@ import {
 } from '@/lib/saved-videos-shared';
 
 const BASE_CATEGORIES = [UNCATEGORIZED_SAVED_CATEGORY, 'Watch Later'];
+const EXTENSION_SHORTCUT_KEYS = new Set(['a', 's', 'd']);
 
 interface ChatResult {
   video: SavedVideo;
@@ -82,6 +83,26 @@ function getYouTubeEmbedSrc(id: string, autoplay = false): string {
   return `https://www.youtube.com/embed/${id}?${params}`;
 }
 
+function isEditableElement(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    tagName === 'input' ||
+    tagName === 'textarea' ||
+    tagName === 'select' ||
+    target.isContentEditable
+  );
+}
+
+function stopExtensionShortcut(event: KeyboardEvent | React.KeyboardEvent<HTMLElement>) {
+  const key = event.key.toLowerCase();
+  if (!EXTENSION_SHORTCUT_KEYS.has(key)) return;
+
+  event.stopPropagation();
+  const nativeEvent = 'nativeEvent' in event ? event.nativeEvent : event;
+  nativeEvent.stopImmediatePropagation?.();
+}
+
 export function WatchListClient({
   initialSaved,
   videos,
@@ -122,7 +143,7 @@ export function WatchListClient({
     {
       id: 'welcome',
       role: 'assistant',
-      text: 'Ask for saved videos by your notes. Matches above 75% confidence appear here.',
+      text: 'Ask for saved videos by your notes. Matches at 50% confidence or higher appear here.',
     },
   ]);
   const initialKey = useRef(savedKey(initialSaved));
@@ -231,6 +252,22 @@ export function WatchListClient({
       .catch(() => {});
 
     return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const onKeyEvent = (event: KeyboardEvent) => {
+      if (!isEditableElement(event.target)) return;
+      stopExtensionShortcut(event);
+    };
+
+    window.addEventListener('keydown', onKeyEvent, true);
+    window.addEventListener('keypress', onKeyEvent, true);
+    window.addEventListener('keyup', onKeyEvent, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyEvent, true);
+      window.removeEventListener('keypress', onKeyEvent, true);
+      window.removeEventListener('keyup', onKeyEvent, true);
+    };
   }, []);
 
   useEffect(() => {
@@ -532,8 +569,8 @@ export function WatchListClient({
           role: 'assistant',
           text:
             results.length > 0
-              ? `Found ${results.length} saved video${results.length === 1 ? '' : 's'} above 75% confidence.`
-              : 'No saved videos crossed 75% confidence from notes.',
+              ? `Found ${results.length} saved video${results.length === 1 ? '' : 's'} at 50% confidence or higher.`
+              : 'No saved videos crossed 50% confidence from notes.',
           results,
         },
       ]);
@@ -622,7 +659,7 @@ export function WatchListClient({
     if (video) {
       return (
         <div className={feed ? 'h-full w-full [&_.card]:h-full [&_.aspect-video]:h-full' : '[&_.aspect-video]:aspect-[16/10]'}>
-          <VideoCard video={video} now={now} onOpen={feed ? undefined : setActiveVideo} showChannel={!feed} />
+          <VideoCard video={video} now={now} onOpen={feed ? undefined : setActiveVideo} showChannel={!feed} showSummary={!feed} />
         </div>
       );
     }
@@ -661,6 +698,9 @@ export function WatchListClient({
             onChange={(event) =>
               setNoteDrafts((current) => ({ ...current, [item.id]: event.currentTarget.value }))
             }
+            onKeyDownCapture={stopExtensionShortcut}
+            onKeyPressCapture={stopExtensionShortcut}
+            onKeyUpCapture={stopExtensionShortcut}
             className="min-h-10 w-full rounded-xl border-2 border-duo-border p-2 text-xs font-bold outline-none focus:border-duo-green"
             placeholder="Why did you save this?"
           />
@@ -790,6 +830,9 @@ export function WatchListClient({
               <input
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
+                onKeyDownCapture={stopExtensionShortcut}
+                onKeyPressCapture={stopExtensionShortcut}
+                onKeyUpCapture={stopExtensionShortcut}
                 placeholder="Paste YouTube, Instagram, or webpage URL"
                 className="min-w-0 rounded-chonk border-2 border-duo-border px-4 py-2 text-sm font-bold outline-none focus:border-duo-green"
                 required
@@ -797,6 +840,9 @@ export function WatchListClient({
               <input
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
+                onKeyDownCapture={stopExtensionShortcut}
+                onKeyPressCapture={stopExtensionShortcut}
+                onKeyUpCapture={stopExtensionShortcut}
                 placeholder="Tag or note"
                 className="min-w-0 rounded-chonk border-2 border-duo-border px-4 py-2 text-sm font-bold outline-none focus:border-duo-green"
               />
@@ -858,6 +904,9 @@ export function WatchListClient({
             <input
               value={chatQuery}
               onChange={(event) => setChatQuery(event.currentTarget.value)}
+              onKeyDownCapture={stopExtensionShortcut}
+              onKeyPressCapture={stopExtensionShortcut}
+              onKeyUpCapture={stopExtensionShortcut}
               placeholder="Ask from saved notes"
               className="min-w-0 flex-1 rounded-chonk border-2 border-duo-border px-3 py-2 text-sm font-bold outline-none focus:border-duo-green"
             />

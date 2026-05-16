@@ -1,21 +1,70 @@
 'use client';
 
+import { useState } from 'react';
 import Image from 'next/image';
 import { timeAgo } from '@/lib/time';
 import type { Video } from '@/lib/types';
+
+type SummaryState =
+  | { status: 'idle'; bullets: string[]; error: null }
+  | { status: 'loading'; bullets: string[]; error: null }
+  | { status: 'ready'; bullets: string[]; error: null }
+  | { status: 'error'; bullets: string[]; error: string };
 
 export function VideoCard({
   video,
   now,
   onOpen,
   showChannel = true,
+  showSummary = true,
 }: {
   video: Video;
   now: number;
   onOpen?: (video: Video) => void;
   showChannel?: boolean;
+  showSummary?: boolean;
 }) {
   const watchUrl = `https://www.youtube.com/watch?v=${video.id}`;
+  const [summary, setSummary] = useState<SummaryState>({
+    status: 'idle',
+    bullets: [],
+    error: null,
+  });
+
+  async function handleSummary() {
+    if (summary.status === 'loading') return;
+    if (summary.status === 'ready') {
+      setSummary({ status: 'idle', bullets: summary.bullets, error: null });
+      return;
+    }
+    if (summary.bullets.length > 0) {
+      setSummary({ status: 'ready', bullets: summary.bullets, error: null });
+      return;
+    }
+
+    setSummary({ status: 'loading', bullets: [], error: null });
+    try {
+      const response = await fetch(`/api/videos/${encodeURIComponent(video.id)}/summary`);
+      const data = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        bullets?: string[];
+        error?: string;
+      } | null;
+
+      if (!response.ok || !data?.ok || !Array.isArray(data.bullets)) {
+        setSummary({
+          status: 'error',
+          bullets: [],
+          error: data?.error ?? 'Could not summarize this video.',
+        });
+        return;
+      }
+
+      setSummary({ status: 'ready', bullets: data.bullets, error: null });
+    } catch {
+      setSummary({ status: 'error', bullets: [], error: 'Could not summarize this video.' });
+    }
+  }
 
   const content = (
     <>
@@ -79,27 +128,58 @@ export function VideoCard({
     </>
   );
 
-  if (onOpen) {
-    return (
+  const summaryPanel = showSummary ? (
+    <div className="border-t-2 border-duo-border bg-duo-soft/60 p-2">
       <button
         type="button"
-        onClick={() => onOpen(video)}
-        className="card block w-full text-left hover:-translate-y-0.5 transition-transform"
-        aria-label={`Play ${video.title}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void handleSummary();
+        }}
+        className="chip w-full justify-center px-2 py-1 text-[11px] text-duo-blueDark"
+        disabled={summary.status === 'loading'}
+        aria-expanded={summary.status === 'ready'}
       >
-        {content}
+        {summary.status === 'loading' ? 'Summarizing...' : summary.status === 'ready' ? 'Hide summary' : 'Bullet summary'}
       </button>
+
+      {summary.status === 'ready' && (
+        <ul className="mt-2 space-y-1 rounded-2xl border-2 border-duo-border bg-white p-2 text-xs font-bold leading-snug text-duo-ink">
+          {summary.bullets.map((bullet, index) => (
+            <li key={`${video.id}-summary-${index}`} className="flex gap-2">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-duo-green" />
+              <span>{bullet}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {summary.status === 'error' && (
+        <p className="mt-2 rounded-2xl border-2 border-red-100 bg-white px-2 py-1 text-xs font-bold text-red-500">
+          {summary.error}
+        </p>
+      )}
+    </div>
+  ) : null;
+
+  if (onOpen) {
+    return (
+      <article className="card block w-full text-left transition-transform hover:-translate-y-0.5">
+        <button type="button" onClick={() => onOpen(video)} className="block w-full text-left" aria-label={`Play ${video.title}`}>
+          {content}
+        </button>
+        {summaryPanel}
+      </article>
     );
   }
 
   return (
-    <a
-      href={watchUrl}
-      target="_blank"
-      rel="noreferrer"
-      className="card block hover:-translate-y-0.5 transition-transform"
-    >
-      {content}
-    </a>
+    <article className="card block transition-transform hover:-translate-y-0.5">
+      <a href={watchUrl} target="_blank" rel="noreferrer" className="block">
+        {content}
+      </a>
+      {summaryPanel}
+    </article>
   );
 }
