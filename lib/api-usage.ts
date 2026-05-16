@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { getCookieChannelStore } from './channels-cookie';
-import { normalizeQuotaUsage, getQuotaResetTimezone } from './drive';
+import { getQuotaResetTimezone, getQuotaUsageDate, normalizeQuotaUsage } from './drive';
 import { getSession } from './session';
 import { readUserSyncState, writeUserSyncState } from './sync-store';
 import {
@@ -50,8 +50,55 @@ function emptyStore(): ChannelPreferenceStore {
   };
 }
 
-function usageForKind(state: { quota?: DailyQuotaUsage; deepseekQuota?: DailyQuotaUsage } | null, kind: ApiUsageKind) {
-  return normalizeQuotaUsage(kind === 'youtube' ? state?.quota : state?.deepseekQuota);
+function isValidUsageDate(date: string | null | undefined): date is string {
+  return Boolean(date && /^\d{4}-\d{2}-\d{2}$/.test(date));
+}
+
+function emptyUsageForDate(date: string): DailyQuotaUsage {
+  return {
+    date,
+    used: 0,
+    operations: [],
+    updatedAt: new Date(0).toISOString(),
+  };
+}
+
+function usageForKind(
+  state:
+    | {
+        quota?: DailyQuotaUsage;
+        deepseekQuota?: DailyQuotaUsage;
+        quotaHistory?: DailyQuotaUsage[];
+        deepseekQuotaHistory?: DailyQuotaUsage[];
+      }
+    | null,
+  kind: ApiUsageKind,
+  date = getQuotaUsageDate(),
+) {
+  const today = getQuotaUsageDate();
+  const active = kind === 'youtube' ? state?.quota : state?.deepseekQuota;
+  if (date === today) return normalizeQuotaUsage(active);
+
+  const history = kind === 'youtube' ? state?.quotaHistory : state?.deepseekQuotaHistory;
+  return history?.find((entry) => entry.date === date) ?? emptyUsageForDate(date);
+}
+
+function usageDates(state: {
+  quota?: DailyQuotaUsage;
+  deepseekQuota?: DailyQuotaUsage;
+  quotaHistory?: DailyQuotaUsage[];
+  deepseekQuotaHistory?: DailyQuotaUsage[];
+} | null): string[] {
+  const dates = new Set<string>([getQuotaUsageDate()]);
+  for (const entry of [
+    ...(state?.quotaHistory ?? []),
+    ...(state?.deepseekQuotaHistory ?? []),
+    state?.quota,
+    state?.deepseekQuota,
+  ]) {
+    if (isValidUsageDate(entry?.date)) dates.add(entry.date);
+  }
+  return [...dates].sort((a, b) => b.localeCompare(a));
 }
 
 function withNextUsage(usage: DailyQuotaUsage, label: string, units: number): DailyQuotaUsage {
@@ -101,24 +148,31 @@ export async function recordApiUsage(kind: ApiUsageKind, label: string, units: n
       lastPagePath: base.lastPagePath,
       quota: nextYoutube,
       deepseekQuota: nextDeepSeek,
+      quotaHistory: remote.state?.quotaHistory,
+      deepseekQuotaHistory: remote.state?.deepseekQuotaHistory,
     });
   } catch {
     // Usage tracking must not break the product flow that spent the quota.
   }
 }
 
-export async function readApiUsageSummaries(): Promise<{
+export async function readApiUsageSummaries(date?: string | null): Promise<{
   youtube: ApiUsageSummary;
   deepseek: ApiUsageSummary;
   resetTimezone: string;
+  selectedDate: string;
+  availableDates: string[];
 }> {
+  const selectedDate = isValidUsageDate(date) ? date : getQuotaUsageDate();
   const session = await getSession();
   const remote = session?.user ? await readUserSyncState(session).catch(() => ({ state: null })) : { state: null };
-  const youtube = usageForKind(remote.state, 'youtube');
-  const deepseek = usageForKind(remote.state, 'deepseek');
+  const youtube = usageForKind(remote.state, 'youtube', selectedDate);
+  const deepseek = usageForKind(remote.state, 'deepseek', selectedDate);
 
   return {
     resetTimezone: getQuotaResetTimezone(),
+    selectedDate,
+    availableDates: usageDates(remote.state),
     youtube: buildSummary('youtube', 'YouTube Data API', YOUTUBE_DAILY_QUOTA_LIMIT, youtube, YOUTUBE_TRIGGER_COSTS),
     deepseek: buildSummary('deepseek', 'DeepSeek tokens', DEEPSEEK_DAILY_TOKEN_LIMIT, deepseek, DEEPSEEK_TRIGGER_COSTS),
   };
@@ -135,6 +189,7 @@ export function buildSummary(
   return {
     kind,
     label,
+    date: usage.date,
     dailyLimit,
     usedToday,
     remainingToday: Math.max(0, dailyLimit - usedToday),

@@ -1,6 +1,8 @@
 import 'server-only';
 
 import type { Session } from 'next-auth';
+import { DEFAULT_CHANNEL_SPACE } from './types';
+import { DEFAULT_VIEW_PREFERENCES } from './view-preferences';
 import {
   buildDriveChannelData,
   normalizeDriveChannelData,
@@ -147,12 +149,24 @@ export async function resetSupabaseDailyUsage(): Promise<{ reset: number }> {
   const emptyQuota = normalizeQuotaUsage(null);
   await Promise.all(
     rows.map(async (row) => {
-      const state: DriveChannelData = {
-        ...row.state,
+      const normalized = normalizeDriveChannelData(row.state);
+      const state: DriveChannelData = buildDriveChannelData({
+        channels: normalized?.channels ?? [],
+        spaces: normalized?.spaces ?? [DEFAULT_CHANNEL_SPACE],
+        view: normalized?.view ?? DEFAULT_VIEW_PREFERENCES,
+        viewUpdatedAt: normalized?.viewUpdatedAt ?? now,
+        updatesChannelIds: normalized?.updatesChannelIds ?? [],
+        vocabs: normalized?.vocabs ?? [],
+        ignoredChannels: normalized?.ignoredChannels ?? [],
+        discoverSearches: normalized?.discoverSearches ?? [],
+        activeDiscoverSearchId: normalized?.activeDiscoverSearchId,
+        discoverDraft: normalized?.discoverDraft,
+        lastPagePath: normalized?.lastPagePath,
         quota: emptyQuota,
         deepseekQuota: emptyQuota,
-        updatedAt: now,
-      };
+        quotaHistory: normalized?.quotaHistory,
+        deepseekQuotaHistory: normalized?.deepseekQuotaHistory,
+      });
       const update = await fetch(`${tableUrl(cfg.url, cfg.table)}?owner_key=eq.${encodeURIComponent(row.owner_key)}`, {
         method: 'PATCH',
         headers: {

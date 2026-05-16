@@ -5,6 +5,7 @@ import {
   DEFAULT_CHANNEL_SPACE,
   normalizeVocabWord,
   vocabIdFromWord,
+  type DailyQuotaUsageHistory,
   type DailyQuotaUsage,
   type ApiUsageOperation,
   type ChannelPreference,
@@ -42,18 +43,24 @@ export interface DriveChannelData {
   lastPagePath?: string;
   quota?: DailyQuotaUsage;
   deepseekQuota?: DailyQuotaUsage;
+  quotaHistory?: DailyQuotaUsageHistory;
+  deepseekQuotaHistory?: DailyQuotaUsageHistory;
   updatedAt: string; // ISO
 }
 
 export interface DriveSyncState extends ChannelPreferenceStore {
   quota: DailyQuotaUsage;
   deepseekQuota: DailyQuotaUsage;
+  quotaHistory: DailyQuotaUsageHistory;
+  deepseekQuotaHistory: DailyQuotaUsageHistory;
   updatedAt: string;
 }
 
 export interface DriveWriteState extends ChannelPreferenceStore {
   quota?: DailyQuotaUsage | null;
   deepseekQuota?: DailyQuotaUsage | null;
+  quotaHistory?: DailyQuotaUsageHistory | null;
+  deepseekQuotaHistory?: DailyQuotaUsageHistory | null;
 }
 
 export interface DriveBackupSummary {
@@ -219,6 +226,10 @@ export function getQuotaResetTimezone(): string {
   return DEFAULT_QUOTA_RESET_TIMEZONE;
 }
 
+export function getQuotaUsageDate(now = new Date()): string {
+  return safeQuotaDate(now);
+}
+
 export function normalizeQuotaUsage(quota?: DailyQuotaUsage | null, now = new Date()): DailyQuotaUsage {
   const today = safeQuotaDate(now);
   if (!quota || quota.date !== today) {
@@ -257,6 +268,72 @@ function normalizeUsageOperations(value: ApiUsageOperation[] | undefined): ApiUs
     .slice(-200);
 }
 
+function normalizeStoredQuotaUsage(quota?: DailyQuotaUsage | null, fallbackDate?: string): DailyQuotaUsage | null {
+  if (!quota) return null;
+
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(quota.date ?? '')
+    ? quota.date
+    : fallbackDate ?? safeQuotaDate(new Date(Date.parse(quota.updatedAt || '') || Date.now()));
+  const operations = normalizeUsageOperations(quota.operations);
+  const used = Math.max(
+    Math.max(0, Math.floor(Number(quota.used) || 0)),
+    operations.reduce((sum, operation) => sum + operation.units, 0),
+  );
+  if (used <= 0 && operations.length === 0) return null;
+
+  return {
+    date,
+    used,
+    operations,
+    updatedAt: quota.updatedAt || operations.at(-1)?.at || new Date().toISOString(),
+  };
+}
+
+export function normalizeQuotaHistory(
+  history?: DailyQuotaUsageHistory | null,
+  rolloverCandidate?: DailyQuotaUsage | null,
+  now = new Date(),
+): DailyQuotaUsageHistory {
+  const today = safeQuotaDate(now);
+  const byDate = new Map<string, DailyQuotaUsage>();
+
+  function merge(entry: DailyQuotaUsage | null) {
+    if (!entry || entry.date === today) return;
+    const existing = byDate.get(entry.date);
+    if (!existing) {
+      byDate.set(entry.date, entry);
+      return;
+    }
+
+    const operationsById = new Map<string, ApiUsageOperation>();
+    for (const operation of [...(existing.operations ?? []), ...(entry.operations ?? [])]) {
+      operationsById.set(operation.id, operation);
+    }
+    const operations = [...operationsById.values()].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-200);
+    const used = Math.max(
+      existing.used,
+      entry.used,
+      operations.reduce((sum, operation) => sum + operation.units, 0),
+    );
+    byDate.set(entry.date, {
+      date: entry.date,
+      used,
+      operations,
+      updatedAt:
+        Date.parse(entry.updatedAt) >= Date.parse(existing.updatedAt)
+          ? entry.updatedAt
+          : existing.updatedAt,
+    });
+  }
+
+  for (const item of history ?? []) merge(normalizeStoredQuotaUsage(item));
+  merge(normalizeStoredQuotaUsage(rolloverCandidate));
+
+  return [...byDate.values()]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 730);
+}
+
 export function normalizeDriveChannelData(data: DriveChannelData | null): DriveSyncState | null {
   if (!data) return null;
 
@@ -273,6 +350,8 @@ export function normalizeDriveChannelData(data: DriveChannelData | null): DriveS
     typeof data.lastPagePath === 'string' && data.lastPagePath.startsWith('/')
       ? data.lastPagePath
       : undefined;
+  const quotaHistory = normalizeQuotaHistory(data.quotaHistory, data.quota);
+  const deepseekQuotaHistory = normalizeQuotaHistory(data.deepseekQuotaHistory, data.deepseekQuota);
 
   return {
     channels: normalizedChannels,
@@ -288,6 +367,8 @@ export function normalizeDriveChannelData(data: DriveChannelData | null): DriveS
     lastPagePath,
     quota: normalizeQuotaUsage(data.quota),
     deepseekQuota: normalizeQuotaUsage(data.deepseekQuota),
+    quotaHistory,
+    deepseekQuotaHistory,
     updatedAt: data.updatedAt ?? new Date(0).toISOString(),
   };
 }
@@ -561,6 +642,9 @@ export async function restoreDriveBackup(
     discoverDraft: backup.discoverDraft,
     lastPagePath: backup.lastPagePath,
     quota: backup.quota,
+    deepseekQuota: backup.deepseekQuota,
+    quotaHistory: backup.quotaHistory,
+    deepseekQuotaHistory: backup.deepseekQuotaHistory,
   });
 
   return backup;
@@ -618,6 +702,8 @@ export function buildDriveChannelData(store: DriveWriteState): DriveChannelData 
   const viewUpdatedAt = store.viewUpdatedAt || new Date().toISOString();
   const normalizedQuota = normalizeQuotaUsage(store.quota);
   const normalizedDeepSeekQuota = normalizeQuotaUsage(store.deepseekQuota);
+  const normalizedQuotaHistory = normalizeQuotaHistory(store.quotaHistory, store.quota);
+  const normalizedDeepSeekQuotaHistory = normalizeQuotaHistory(store.deepseekQuotaHistory, store.deepseekQuota);
   const body: DriveChannelData = {
     channels: normalizedChannels,
     channelIds: normalizedChannels.map((channel) => channel.id),
@@ -633,6 +719,8 @@ export function buildDriveChannelData(store: DriveWriteState): DriveChannelData 
     lastPagePath: store.lastPagePath,
     quota: normalizedQuota,
     deepseekQuota: normalizedDeepSeekQuota,
+    quotaHistory: normalizedQuotaHistory,
+    deepseekQuotaHistory: normalizedDeepSeekQuotaHistory,
     updatedAt: new Date().toISOString(),
   };
   return body;
@@ -691,6 +779,8 @@ export async function recordDriveQuotaUsage(
     lastPagePath: baseStore.lastPagePath,
     quota: nextQuota,
     deepseekQuota: existing?.deepseekQuota,
+    quotaHistory: existing?.quotaHistory,
+    deepseekQuotaHistory: existing?.deepseekQuotaHistory,
   });
 
   return nextQuota;

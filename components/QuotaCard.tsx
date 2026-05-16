@@ -16,7 +16,7 @@ function UsagePanel({ summary }: { summary: ApiUsageSummary }) {
         <div className="text-right">
           <p className="text-xs font-black uppercase tracking-[0.2em] text-duo-mute">Remaining</p>
           <p className="mt-1 text-xl font-extrabold text-duo-greenDark">{formatUnits(summary.remainingToday)}</p>
-          <p className="text-sm font-bold text-duo-mute">of {formatUnits(summary.dailyLimit)}</p>
+          <p className="text-sm font-bold text-duo-mute">of {formatUnits(summary.dailyLimit)} on {summary.date}</p>
         </div>
       </div>
 
@@ -25,15 +25,16 @@ function UsagePanel({ summary }: { summary: ApiUsageSummary }) {
           dailyLimit={summary.dailyLimit}
           usedToday={summary.usedToday}
           operations={summary.operations}
+          usageLabel={`used on ${summary.date}`}
         />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
-          <h4 className="text-sm font-extrabold text-duo-ink">Operations today</h4>
+          <h4 className="text-sm font-extrabold text-duo-ink">Operations on {summary.date}</h4>
           {summary.operations.length === 0 ? (
             <p className="mt-2 rounded-2xl bg-duo-soft px-3 py-2 text-sm font-bold text-duo-mute">
-              No tracked operations today.
+              No tracked operations for this date.
             </p>
           ) : (
             <ul className="mt-2 max-h-56 space-y-2 overflow-auto pr-1">
@@ -70,17 +71,43 @@ export function QuotaCard({
   youtube,
   deepseek,
   resetTimezone,
+  selectedDate,
+  availableDates,
 }: {
   youtube: ApiUsageSummary;
   deepseek: ApiUsageSummary;
   resetTimezone: string;
+  selectedDate: string;
+  availableDates: string[];
 }) {
   return (
     <section className="card p-5 space-y-4">
-      <div>
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-duo-greenDark">Usage monitor</p>
-        <h2 className="mt-1 text-2xl font-extrabold text-duo-ink">API quota budget</h2>
-        <p className="mt-1 text-sm font-bold text-duo-mute">Daily usage resets at midnight ({resetTimezone}).</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-duo-greenDark">Usage monitor</p>
+          <h2 className="mt-1 text-2xl font-extrabold text-duo-ink">API quota budget</h2>
+          <p className="mt-1 text-sm font-bold text-duo-mute">Daily usage resets at midnight ({resetTimezone}).</p>
+        </div>
+        <form className="flex flex-wrap items-end gap-2" action="/settings">
+          <label className="min-w-[160px] text-xs font-black uppercase tracking-[0.16em] text-duo-mute">
+            Usage date
+            <input
+              type="date"
+              name="quotaDate"
+              list="quota-usage-dates"
+              defaultValue={selectedDate}
+              className="mt-1 w-full rounded-2xl border-2 border-duo-border bg-white px-3 py-2 text-sm font-extrabold normal-case tracking-normal text-duo-ink outline-none focus:border-duo-green"
+            />
+          </label>
+          <datalist id="quota-usage-dates">
+            {availableDates.map((date) => (
+              <option key={date} value={date} />
+            ))}
+          </datalist>
+          <button type="submit" className="btn-secondary px-4 py-2 text-sm">
+            List
+          </button>
+        </form>
       </div>
       <UsagePanel summary={youtube} />
       <UsagePanel summary={deepseek} />

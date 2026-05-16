@@ -2,6 +2,7 @@ create table if not exists public.tubeo_user_sync_state (
   owner_key text primary key,
   user_email text not null,
   user_name text,
+  -- state includes current quota plus quotaHistory/deepseekQuotaHistory JSON arrays for daily usage lookup.
   state jsonb not null,
   state_updated_at timestamptz not null,
   created_at timestamptz not null default now(),
@@ -28,3 +29,4 @@ alter table public.tubeo_user_sync_state enable row level security;
 
 revoke all on public.tubeo_user_sync_state from anon;
 revoke all on public.tubeo_user_sync_state from authenticated;
+grant select, insert, update, delete on public.tubeo_user_sync_state to service_role;

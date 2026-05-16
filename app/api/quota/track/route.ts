@@ -2,13 +2,14 @@ import { readApiUsageSummaries, recordApiUsage } from '@/lib/api-usage';
 import { getSession } from '@/lib/session';
 import type { ApiUsageKind } from '@/lib/types';
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getSession();
   if (!session?.user) {
     return Response.json({ error: 'Not signed in' }, { status: 401 });
   }
 
-  return Response.json({ ok: true, ...(await readApiUsageSummaries()) });
+  const date = new URL(req.url).searchParams.get('date');
+  return Response.json({ ok: true, ...(await readApiUsageSummaries(date)) });
 }
 
 export async function POST(req: Request) {

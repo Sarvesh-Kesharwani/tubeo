@@ -117,6 +117,8 @@ export interface DailyQuotaUsage {
   operations?: ApiUsageOperation[];
 }
 
+export type DailyQuotaUsageHistory = DailyQuotaUsage[];
+
 export type ApiUsageKind = 'youtube' | 'deepseek';
 
 export interface ApiUsageOperation {
@@ -177,6 +179,7 @@ export interface ApiUsageTriggerCost {
 export interface ApiUsageSummary {
   kind: ApiUsageKind;
   label: string;
+  date: string;
   dailyLimit: number;
   usedToday: number;
   remainingToday: number;

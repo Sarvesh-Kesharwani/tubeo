@@ -56,12 +56,19 @@ export async function writeUserSyncState(
   let stateToWrite = store;
 
   if (identity && isSupabaseSyncConfigured()) {
-    if (!stateToWrite.quota || !stateToWrite.deepseekQuota) {
+    if (
+      !stateToWrite.quota ||
+      !stateToWrite.deepseekQuota ||
+      !stateToWrite.quotaHistory ||
+      !stateToWrite.deepseekQuotaHistory
+    ) {
       const existing = await readSupabaseSyncState(identity);
       stateToWrite = {
         ...stateToWrite,
         quota: stateToWrite.quota ?? existing?.quota,
         deepseekQuota: stateToWrite.deepseekQuota ?? existing?.deepseekQuota,
+        quotaHistory: stateToWrite.quotaHistory ?? existing?.quotaHistory,
+        deepseekQuotaHistory: stateToWrite.deepseekQuotaHistory ?? existing?.deepseekQuotaHistory,
       };
     }
     const state = await writeSupabaseSyncState(identity, stateToWrite);
@@ -77,12 +84,19 @@ export async function writeUserSyncState(
   }
 
   if (!accessToken) throw new Error('No sync destination configured.');
-  if (!stateToWrite.quota || !stateToWrite.deepseekQuota) {
+  if (
+    !stateToWrite.quota ||
+    !stateToWrite.deepseekQuota ||
+    !stateToWrite.quotaHistory ||
+    !stateToWrite.deepseekQuotaHistory
+  ) {
     const existing = await readDriveChannels(accessToken);
     stateToWrite = {
       ...stateToWrite,
       quota: stateToWrite.quota ?? existing?.quota,
       deepseekQuota: stateToWrite.deepseekQuota ?? existing?.deepseekQuota,
+      quotaHistory: stateToWrite.quotaHistory ?? existing?.quotaHistory,
+      deepseekQuotaHistory: stateToWrite.deepseekQuotaHistory ?? existing?.deepseekQuotaHistory,
     };
   }
   await writeDriveChannels(accessToken, stateToWrite);

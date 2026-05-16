@@ -16,7 +16,12 @@ import {
 import { getChannels } from '@/lib/youtube';
 import { isInstagramChannelId, instagramUsernameFromChannelId } from '@/lib/instagram';
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ quotaDate?: string }>;
+}) {
+  const params = await searchParams;
   const session = await getSession();
   const [preferences, envIds, spaces] = await Promise.all([
     getWhitelistedChannelPreferences(),
@@ -36,7 +41,7 @@ export default async function SettingsPage() {
     // Show IDs if API fails
   }
 
-  const usage = canViewQuota ? await readApiUsageSummaries() : null;
+  const usage = canViewQuota ? await readApiUsageSummaries(params?.quotaDate) : null;
 
   const channelMap = new Map(channels.map((channel) => [channel.id, channel]));
 
@@ -84,7 +89,13 @@ export default async function SettingsPage() {
       </h1>
 
       {canViewQuota && usage && (
-        <QuotaCard youtube={usage.youtube} deepseek={usage.deepseek} resetTimezone={usage.resetTimezone} />
+        <QuotaCard
+          youtube={usage.youtube}
+          deepseek={usage.deepseek}
+          resetTimezone={usage.resetTimezone}
+          selectedDate={usage.selectedDate}
+          availableDates={usage.availableDates}
+        />
       )}
 
       {session?.user && <DriveRestoreCard />}

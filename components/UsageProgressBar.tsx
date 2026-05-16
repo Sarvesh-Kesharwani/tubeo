@@ -9,11 +9,13 @@ export function UsageProgressBar({
   usedToday,
   operations,
   compact = false,
+  usageLabel = 'used today',
 }: {
   dailyLimit: number;
   usedToday: number;
   operations: ApiUsageOperation[];
   compact?: boolean;
+  usageLabel?: string;
 }) {
   const logged = operations.reduce((sum, operation) => sum + operation.units, 0);
   const legacyUnits = Math.max(0, usedToday - logged);
@@ -48,7 +50,7 @@ export function UsageProgressBar({
       </div>
       {!compact && (
         <div className="flex items-center justify-between gap-3 text-sm font-bold text-duo-mute">
-          <span>{formatUnits(usedToday)} used today</span>
+          <span>{formatUnits(usedToday)} {usageLabel}</span>
           <span>{dailyLimit > 0 ? ((usedToday / dailyLimit) * 100).toFixed(1) : '0.0'}%</span>
         </div>
       )}
