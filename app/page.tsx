@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { DurationFilter } from '@/components/DurationFilter';
 import { EmptyState } from '@/components/EmptyState';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { MixedFeedClient } from '@/components/MixedFeedClient';
@@ -6,6 +7,7 @@ import { QuotaUsageTracker } from '@/components/QuotaUsageTracker';
 import { TimeFilter } from '@/components/TimeFilter';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
 import { getCookieViewPreferences } from '@/lib/channels-cookie';
+import { matchesDurationFilter, parseDurationFilter } from '@/lib/duration';
 import { parseMediaFilter } from '@/lib/media';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
@@ -16,12 +18,13 @@ import { getWhitelistedChannelIds } from '@/lib/whitelist';
 export default async function MixedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; media?: string }>;
+  searchParams: Promise<{ range?: string; media?: string; duration?: string }>;
 }) {
   const sp = await searchParams;
   const view = await getCookieViewPreferences();
   const range = parseRange(sp.range ?? view.home.range);
   const media = parseMediaFilter(sp.media ?? view.home.media);
+  const duration = parseDurationFilter(sp.duration ?? view.home.duration);
 
   return (
     <div className="space-y-6">
@@ -33,12 +36,15 @@ export default async function MixedPage({
         <Suspense fallback={null}>
           <MediaTypeFilter active={media} />
         </Suspense>
+        <Suspense fallback={null}>
+          <DurationFilter active={duration} />
+        </Suspense>
       </section>
 
-      <Suspense key={`${range}:${media}`} fallback={<FeedSkeleton />}>
-        <Feed range={range} media={media} />
+      <Suspense key={`${range}:${media}:${duration}`} fallback={<FeedSkeleton />}>
+        <Feed range={range} media={media} duration={duration} />
       </Suspense>
-      <ViewPreferenceTracker page="home" range={range} media={media} />
+      <ViewPreferenceTracker page="home" range={range} media={media} duration={duration} />
     </div>
   );
 }
@@ -46,9 +52,11 @@ export default async function MixedPage({
 async function Feed({
   range,
   media,
+  duration,
 }: {
   range: ReturnType<typeof parseRange>;
   media: ReturnType<typeof parseMediaFilter>;
+  duration: ReturnType<typeof parseDurationFilter>;
 }) {
   const now = getRequestTime();
   const session = await getSession();
@@ -77,7 +85,7 @@ async function Feed({
   let quotaUnits = 0;
   try {
     const result = await getMixedFeedWithQuota(range, media, 10, now);
-    videos = result.videos;
+    videos = result.videos.filter((video) => matchesDurationFilter(video, duration));
     quotaUnits = result.quota.refreshCost;
   } catch (error) {
     return <EmptyState emoji="!" title="Couldn't load feed" description={(error as Error).message} />;
@@ -88,7 +96,7 @@ async function Feed({
       <EmptyState
         emoji="0"
         title="Nothing new in this filter"
-        description="Try a longer time window or switch between videos and shorts."
+        description="Try a longer time window, switch media type, or pick a different duration."
       />
     );
   }
@@ -96,7 +104,7 @@ async function Feed({
   return (
     <>
       {session.accessToken && quotaUnits > 0 && (
-        <QuotaUsageTracker units={quotaUnits} trackingKey={`home:${range}:${media}:${now}`} />
+        <QuotaUsageTracker units={quotaUnits} trackingKey={`home:${range}:${media}:${duration}:${now}`} />
       )}
       <MixedFeedClient videos={videos} now={now} />
     </>

@@ -1,11 +1,13 @@
 import { Suspense } from 'react';
 import { ChannelRow } from '@/components/ChannelRow';
+import { DurationFilter } from '@/components/DurationFilter';
 import { EmptyState } from '@/components/EmptyState';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { TimeFilter } from '@/components/TimeFilter';
 import { UpdatesChannelSelector } from '@/components/UpdatesChannelSelector';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
 import { getCookieChannelStore } from '@/lib/channels-cookie';
+import { matchesDurationFilter, parseDurationFilter } from '@/lib/duration';
 import { parseMediaFilter } from '@/lib/media';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
@@ -15,12 +17,13 @@ import { getChannels, getLatestVideosForChannel } from '@/lib/youtube';
 export default async function UpdatesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; media?: string }>;
+  searchParams: Promise<{ range?: string; media?: string; duration?: string }>;
 }) {
   const sp = await searchParams;
   const store = await getCookieChannelStore();
   const range = parseRange(sp.range ?? store.view.updates.range);
   const media = parseMediaFilter(sp.media ?? store.view.updates.media);
+  const duration = parseDurationFilter(sp.duration ?? store.view.updates.duration);
 
   return (
     <div className="space-y-6">
@@ -35,12 +38,18 @@ export default async function UpdatesPage({
         <Suspense fallback={null}>
           <MediaTypeFilter active={media} />
         </Suspense>
+        <Suspense fallback={null}>
+          <DurationFilter active={duration} />
+        </Suspense>
       </section>
 
-      <Suspense key={`${range}:${media}:${store.updatesChannelIds.join(',')}`} fallback={<UpdatesSkeleton />}>
-        <UpdatesFeed range={range} media={media} selectedIds={store.updatesChannelIds} />
+      <Suspense
+        key={`${range}:${media}:${duration}:${store.updatesChannelIds.join(',')}`}
+        fallback={<UpdatesSkeleton />}
+      >
+        <UpdatesFeed range={range} media={media} duration={duration} selectedIds={store.updatesChannelIds} />
       </Suspense>
-      <ViewPreferenceTracker page="updates" range={range} media={media} />
+      <ViewPreferenceTracker page="updates" range={range} media={media} duration={duration} />
     </div>
   );
 }
@@ -54,10 +63,12 @@ async function UpdatesHeader({ selectedIds }: { selectedIds: string[] }) {
 async function UpdatesFeed({
   range,
   media,
+  duration,
   selectedIds,
 }: {
   range: ReturnType<typeof parseRange>;
   media: ReturnType<typeof parseMediaFilter>;
+  duration: ReturnType<typeof parseDurationFilter>;
   selectedIds: string[];
 }) {
   const session = await getSession();
@@ -80,7 +91,9 @@ async function UpdatesFeed({
   const groups = await Promise.all(
     channels.map(async (channel) => ({
       channel,
-      videos: await getLatestVideosForChannel(channel, range, media, range === 'all' ? 50 : 12, now),
+      videos: (await getLatestVideosForChannel(channel, range, media, range === 'all' ? 50 : 12, now)).filter(
+        (video) => matchesDurationFilter(video, duration),
+      ),
     })),
   );
 

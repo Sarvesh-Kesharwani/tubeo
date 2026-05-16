@@ -3,34 +3,34 @@
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { DURATION_FILTERS } from '@/lib/duration';
 import { saveState } from '@/lib/filter-persistence';
-import { MEDIA_FILTERS } from '@/lib/media';
-import type { DurationFilter, MediaFilter, TimeRange } from '@/lib/types';
+import type { DurationFilter as DurationFilterValue, MediaFilter, TimeRange } from '@/lib/types';
 
-export function MediaTypeFilter({ active }: { active: MediaFilter }) {
+export function DurationFilter({ active }: { active: DurationFilterValue }) {
   const pathname = usePathname();
   const sp = useSearchParams();
-  const [optimisticMedia, setOptimisticMedia] = useState(active);
+  const [optimisticDuration, setOptimisticDuration] = useState(active);
 
   useEffect(() => {
-    setOptimisticMedia(active);
+    setOptimisticDuration(active);
   }, [active]);
 
-  function hrefFor(media: MediaFilter): string {
+  function hrefFor(duration: DurationFilterValue): string {
     const params = new URLSearchParams(sp.toString());
-    if (media === 'all') {
-      params.delete('media');
+    if (duration === 'all') {
+      params.delete('duration');
     } else {
-      params.set('media', media);
+      params.set('duration', duration);
     }
     const query = params.toString();
     return query ? `${pathname}?${query}` : pathname;
   }
 
-  function persistMedia(media: MediaFilter) {
+  function persistDuration(duration: DurationFilterValue) {
     const page = pathname === '/channels' ? 'channels' : pathname === '/updates' ? 'updates' : 'home';
     const range = (sp.get('range') ?? '7d') as TimeRange;
-    const duration = (sp.get('duration') ?? 'all') as DurationFilter;
+    const media = (sp.get('media') ?? 'all') as MediaFilter;
     const space = sp.get('space') ?? undefined;
     const filters =
       page === 'channels'
@@ -44,16 +44,16 @@ export function MediaTypeFilter({ active }: { active: MediaFilter }) {
 
   return (
     <div className="flex flex-wrap gap-2">
-      {MEDIA_FILTERS.map((filter) => {
-        const isActive = filter.value === optimisticMedia;
+      {DURATION_FILTERS.map((filter) => {
+        const isActive = filter.value === optimisticDuration;
         return (
           <Link
             key={filter.value}
             href={hrefFor(filter.value)}
             prefetch
             onClick={() => {
-              setOptimisticMedia(filter.value);
-              persistMedia(filter.value);
+              setOptimisticDuration(filter.value);
+              persistDuration(filter.value);
             }}
             className={`chip ${isActive ? 'chip-active' : ''}`}
             scroll={false}

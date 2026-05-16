@@ -2,17 +2,19 @@
 
 import { useEffect } from 'react';
 import { saveState } from '@/lib/filter-persistence';
-import type { MediaFilter, TimeRange } from '@/lib/types';
+import type { DurationFilter, MediaFilter, TimeRange } from '@/lib/types';
 
 export function ViewPreferenceTracker({
   page,
   range,
   media,
+  duration,
   space,
 }: {
   page: 'home' | 'channels' | 'updates';
   range: TimeRange;
   media: MediaFilter;
+  duration: DurationFilter;
   space?: string;
 }) {
   useEffect(() => {
@@ -22,10 +24,10 @@ export function ViewPreferenceTracker({
     }, 350);
     const filters =
       page === 'channels'
-        ? { channels: { range, media, space: space ?? 'all' } }
+        ? { channels: { range, media, duration, space: space ?? 'all' } }
         : page === 'updates'
-        ? { updates: { range, media } }
-        : { home: { range, media } };
+        ? { updates: { range, media, duration } }
+        : { home: { range, media, duration } };
     saveState(filters);
 
     async function persist() {
@@ -33,7 +35,7 @@ export function ViewPreferenceTracker({
         const res = await fetch('/api/view-preferences', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ page, range, media, space }),
+          body: JSON.stringify({ page, range, media, duration, space }),
           signal: controller.signal,
         });
 
@@ -57,7 +59,7 @@ export function ViewPreferenceTracker({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [media, page, range, space]);
+  }, [duration, media, page, range, space]);
 
   return null;
 }

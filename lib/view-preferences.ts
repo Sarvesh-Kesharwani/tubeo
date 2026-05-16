@@ -1,3 +1,4 @@
+import { DEFAULT_DURATION_FILTER, parseDurationFilter } from './duration';
 import { DEFAULT_MEDIA_FILTER, parseMediaFilter } from './media';
 import { DEFAULT_RANGE, parseRange } from './time';
 import { CHANNELS_OVERVIEW_SPACE, type ViewPreferences } from './types';
@@ -7,15 +8,18 @@ export const DEFAULT_VIEW_PREFERENCES: ViewPreferences = {
   home: {
     range: DEFAULT_RANGE,
     media: DEFAULT_MEDIA_FILTER,
+    duration: DEFAULT_DURATION_FILTER,
   },
   channels: {
     range: DEFAULT_RANGE,
     media: DEFAULT_MEDIA_FILTER,
+    duration: DEFAULT_DURATION_FILTER,
     space: CHANNELS_OVERVIEW_SPACE,
   },
   updates: {
     range: DEFAULT_RANGE,
     media: DEFAULT_MEDIA_FILTER,
+    duration: DEFAULT_DURATION_FILTER,
   },
 };
 
@@ -33,15 +37,18 @@ export function normalizeViewPreferences(value?: Partial<ViewPreferences> | null
     home: {
       range: parseRange(value?.home?.range),
       media: parseMediaFilter(value?.home?.media),
+      duration: parseDurationFilter(value?.home?.duration),
     },
     channels: {
       range: parseRange(value?.channels?.range),
       media: parseMediaFilter(value?.channels?.media),
+      duration: parseDurationFilter(value?.channels?.duration),
       space: normalizeViewSpace(value?.channels?.space),
     },
     updates: {
       range: parseRange(value?.updates?.range),
       media: parseMediaFilter(value?.updates?.media),
+      duration: parseDurationFilter(value?.updates?.duration),
     },
   };
 }

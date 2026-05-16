@@ -3,6 +3,7 @@ import {
   markCookieChannelStoreDirty,
   setCookieViewPreferences,
 } from '@/lib/channels-cookie';
+import { parseDurationFilter } from '@/lib/duration';
 import { parseMediaFilter } from '@/lib/media';
 import { parseRange } from '@/lib/time';
 import { type ViewPreferences } from '@/lib/types';
@@ -33,6 +34,7 @@ export async function POST(req: Request) {
         ? {
             range: parseRange(String(body.range ?? existing.home.range)),
             media: parseMediaFilter(String(body.media ?? existing.home.media)),
+            duration: parseDurationFilter(String(body.duration ?? existing.home.duration)),
           }
         : existing.home,
     channels:
@@ -40,6 +42,7 @@ export async function POST(req: Request) {
         ? {
             range: parseRange(String(body.range ?? existing.channels.range)),
             media: parseMediaFilter(String(body.media ?? existing.channels.media)),
+            duration: parseDurationFilter(String(body.duration ?? existing.channels.duration)),
             space: normalizeViewSpace(String(body.space ?? existing.channels.space)),
           }
         : existing.channels,
@@ -48,6 +51,7 @@ export async function POST(req: Request) {
         ? {
             range: parseRange(String(body.range ?? existing.updates.range)),
             media: parseMediaFilter(String(body.media ?? existing.updates.media)),
+            duration: parseDurationFilter(String(body.duration ?? existing.updates.duration)),
           }
         : existing.updates,
   });

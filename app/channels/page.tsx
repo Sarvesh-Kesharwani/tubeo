@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { DurationFilter } from '@/components/DurationFilter';
 import { EmptyState } from '@/components/EmptyState';
 import { InstagramChannelRow } from '@/components/InstagramChannelRow';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
@@ -8,6 +9,7 @@ import { SpaceTabs } from '@/components/SpaceTabs';
 import { TimeFilter } from '@/components/TimeFilter';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
 import { getCookieViewPreferences } from '@/lib/channels-cookie';
+import { matchesDurationFilter, parseDurationFilter } from '@/lib/duration';
 import { parseMediaFilter } from '@/lib/media';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
@@ -26,13 +28,14 @@ import { getWhitelistedChannelPreferences, getWhitelistedChannelSpaces } from '@
 export default async function ChannelsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; space?: string; media?: string }>;
+  searchParams: Promise<{ range?: string; space?: string; media?: string; duration?: string }>;
 }) {
   const sp = await searchParams;
   const view = await getCookieViewPreferences();
   const range = parseRange(sp.range ?? view.channels.range);
   const activeSpace = (sp.space ?? view.channels.space ?? '').trim();
   const media = parseMediaFilter(sp.media ?? view.channels.media);
+  const duration = parseDurationFilter(sp.duration ?? view.channels.duration);
 
   return (
     <div className="space-y-6">
@@ -44,10 +47,13 @@ export default async function ChannelsPage({
         <Suspense fallback={null}>
           <MediaTypeFilter active={media} />
         </Suspense>
+        <Suspense fallback={null}>
+          <DurationFilter active={duration} />
+        </Suspense>
       </section>
 
-      <Suspense key={`${range}:${activeSpace || 'all'}:${media}`} fallback={<GroupedSkeleton />}>
-        <Grouped range={range} activeSpace={activeSpace} media={media} />
+      <Suspense key={`${range}:${activeSpace || 'all'}:${media}:${duration}`} fallback={<GroupedSkeleton />}>
+        <Grouped range={range} activeSpace={activeSpace} media={media} duration={duration} />
       </Suspense>
     </div>
   );
@@ -57,10 +63,12 @@ async function Grouped({
   range,
   activeSpace,
   media,
+  duration,
 }: {
   range: ReturnType<typeof parseRange>;
   activeSpace: string;
   media: ReturnType<typeof parseMediaFilter>;
+  duration: ReturnType<typeof parseDurationFilter>;
 }) {
   const now = getRequestTime();
   const session = await getSession();
@@ -113,7 +121,10 @@ async function Grouped({
             }),
           ),
     ]);
-    groups = result.groups;
+    groups = result.groups.map((group) => ({
+      ...group,
+      videos: group.videos.filter((video) => matchesDurationFilter(video, duration)),
+    }));
     quotaUnits = result.quota.refreshCost;
     instagramResults = resolvedInstagram;
   } catch (error) {
@@ -178,10 +189,16 @@ async function Grouped({
       {session.accessToken && quotaUnits > 0 && (
         <QuotaUsageTracker
           units={quotaUnits}
-          trackingKey={`channels:${range}:${activeSpaceValue}:${media}:${now}`}
+          trackingKey={`channels:${range}:${activeSpaceValue}:${media}:${duration}:${now}`}
         />
       )}
-      <ViewPreferenceTracker page="channels" range={range} media={media} space={activeSpaceValue} />
+      <ViewPreferenceTracker
+        page="channels"
+        range={range}
+        media={media}
+        duration={duration}
+        space={activeSpaceValue}
+      />
       <SpaceTabs activeSpace={activeSpaceValue} tabs={tabs} />
 
       {visibleInstagramResults.map((item) => (

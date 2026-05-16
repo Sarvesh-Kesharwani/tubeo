@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { saveState } from '@/lib/filter-persistence';
 import { TIME_RANGES } from '@/lib/time';
-import type { MediaFilter, TimeRange } from '@/lib/types';
+import type { DurationFilter, MediaFilter, TimeRange } from '@/lib/types';
 
 export function TimeFilter({ active }: { active: TimeRange }) {
   const pathname = usePathname();
@@ -25,13 +25,14 @@ export function TimeFilter({ active }: { active: TimeRange }) {
   function persistRange(range: TimeRange) {
     const page = pathname === '/channels' ? 'channels' : pathname === '/updates' ? 'updates' : 'home';
     const media = (sp.get('media') ?? 'all') as MediaFilter;
+    const duration = (sp.get('duration') ?? 'all') as DurationFilter;
     const space = sp.get('space') ?? undefined;
     const filters =
       page === 'channels'
-        ? { channels: { range, media, space: space ?? 'all' } }
+        ? { channels: { range, media, duration, space: space ?? 'all' } }
         : page === 'updates'
-        ? { updates: { range, media } }
-        : { home: { range, media } };
+        ? { updates: { range, media, duration } }
+        : { home: { range, media, duration } };
 
     saveState(filters);
   }
