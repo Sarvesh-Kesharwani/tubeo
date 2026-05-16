@@ -127,6 +127,9 @@ export interface SavedVideoNoteSearchResult {
   reason: string;
 }
 
+const FALLBACK_SAVED_VIDEO_CATEGORY = 'Watch Later';
+const CATEGORIZATION_BATCH_SIZE = 12;
+
 function parseJsonPayload(text: string): unknown {
   const cleaned = text
     .trim()
@@ -153,6 +156,76 @@ function parseJsonPayload(text: string): unknown {
   }
 }
 
+function isDeepSeekJsonPayloadError(error: unknown): error is DeepSeekRequestError {
+  return (
+    error instanceof DeepSeekRequestError &&
+    error.status === 502 &&
+    (error.message.startsWith('DeepSeek returned invalid JSON') ||
+      error.message.startsWith('DeepSeek returned malformed JSON'))
+  );
+}
+
+function categorizationMaxTokens(itemCount: number): number {
+  return Math.min(2200, Math.max(1000, 420 + itemCount * 140));
+}
+
+async function categorizeSavedVideoBatch(
+  items: SavedVideoCategorizationInput[],
+  existingCategories: string[],
+  system: string,
+): Promise<SavedVideoCategorization[]> {
+  const user = JSON.stringify({
+    rules: [
+      'Prefer the note/tag over URL.',
+      'Group by semantic closeness across this batch and existingCategories.',
+      'If two notes are about the same tool, skill, topic, creator, platform, or learning goal, use the same category.',
+      'Do not split tiny differences into separate categories.',
+      'Prefer existingCategories when close enough.',
+      'If unclear, use "Watch Later".',
+      'Return minified JSON only.',
+    ],
+    existingCategories,
+    items,
+  });
+
+  try {
+    const content = await runDeepSeekChat({
+      system,
+      user,
+      maxTokens: categorizationMaxTokens(items.length),
+    });
+    const parsed = parseJsonPayload(content) as
+      | { items?: Array<{ id?: unknown; category?: unknown }> }
+      | Array<{ id?: unknown; category?: unknown }>;
+    const itemsPayload = Array.isArray(parsed) ? parsed : parsed.items;
+
+    return (itemsPayload ?? [])
+      .map((item) => ({
+        id: typeof item.id === 'string' ? item.id.trim() : '',
+        category: typeof item.category === 'string' ? item.category.trim() : '',
+      }))
+      .filter((item) => item.id && item.category)
+      .map((item) => ({
+        ...item,
+        category: item.category.slice(0, 40),
+      }));
+  } catch (error) {
+    if (!isDeepSeekJsonPayloadError(error)) {
+      throw error;
+    }
+
+    if (items.length === 1) {
+      return [{ id: items[0].id, category: FALLBACK_SAVED_VIDEO_CATEGORY }];
+    }
+
+    const midpoint = Math.ceil(items.length / 2);
+    const first = await categorizeSavedVideoBatch(items.slice(0, midpoint), existingCategories, system);
+    const categories = Array.from(new Set([...existingCategories, ...first.map((item) => item.category)]));
+    const second = await categorizeSavedVideoBatch(items.slice(midpoint), categories, system);
+    return [...first, ...second];
+  }
+}
+
 export async function categorizeSavedVideos(
   items: SavedVideoCategorizationInput[],
   context: SavedVideoCategorizationContext = {},
@@ -167,37 +240,19 @@ export async function categorizeSavedVideos(
     'Prefer 4-8 broad reusable categories over many narrow one-off categories. ' +
     'Use short useful category names, 1-3 words, Title Case. ' +
     'Return strict JSON only with shape {"items":[{"id":"...","category":"..."}]}. ' +
-    'No markdown, no comments, no extra keys.';
+    'No markdown, no comments, no extra keys. Return compact minified JSON.';
 
-  const user = JSON.stringify({
-    rules: [
-      'Prefer the note/tag over URL.',
-      'Group by semantic closeness across the whole batch.',
-      'If two notes are about the same tool, skill, topic, creator, platform, or learning goal, use the same category.',
-      'Do not split tiny differences into separate categories.',
-      'Prefer existingCategories when close enough.',
-      'If unclear, use "Watch Later".',
-    ],
-    existingCategories: context.existingCategories ?? [],
-    items,
-  });
+  const results: SavedVideoCategorization[] = [];
+  let knownCategories = Array.from(new Set(context.existingCategories ?? []));
 
-  const content = await runDeepSeekChat({ system, user, maxTokens: 700 });
-  const parsed = parseJsonPayload(content) as
-    | { items?: Array<{ id?: unknown; category?: unknown }> }
-    | Array<{ id?: unknown; category?: unknown }>;
-  const itemsPayload = Array.isArray(parsed) ? parsed : parsed.items;
+  for (let index = 0; index < items.length; index += CATEGORIZATION_BATCH_SIZE) {
+    const batch = items.slice(index, index + CATEGORIZATION_BATCH_SIZE);
+    const categorized = await categorizeSavedVideoBatch(batch, knownCategories, system);
+    results.push(...categorized);
+    knownCategories = Array.from(new Set([...knownCategories, ...categorized.map((item) => item.category)]));
+  }
 
-  return (itemsPayload ?? [])
-    .map((item) => ({
-      id: typeof item.id === 'string' ? item.id.trim() : '',
-      category: typeof item.category === 'string' ? item.category.trim() : '',
-    }))
-    .filter((item) => item.id && item.category)
-    .map((item) => ({
-      ...item,
-      category: item.category.slice(0, 40),
-    }));
+  return results;
 }
 
 export async function searchSavedVideosByNote(
