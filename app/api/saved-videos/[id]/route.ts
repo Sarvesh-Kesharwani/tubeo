@@ -31,7 +31,7 @@ export async function PATCH(req: Request, { params }: RouteContext) {
   const category = normalizeSavedVideoCategory(body.category);
 
   const session = await getSession();
-  await hydrateSavedVideosFromDriveIfNeeded(session?.accessToken);
+  await hydrateSavedVideosFromDriveIfNeeded(session);
 
   const current = await getCookieSavedVideos();
   if (!current.some((video) => video.id === cleanId)) {
@@ -47,7 +47,7 @@ export async function PATCH(req: Request, { params }: RouteContext) {
       : video,
   );
 
-  const result = await persistSavedVideos(next, session?.accessToken);
+  const result = await persistSavedVideos(next, session);
   revalidatePath('/videos');
   return Response.json({ ok: true, savedVideo: next.find((video) => video.id === cleanId), synced: result.synced, updatedAt: result.updatedAt });
 }
@@ -58,12 +58,12 @@ export async function DELETE(_req: Request, { params }: RouteContext) {
   if (!cleanId) return Response.json({ ok: false, error: 'Missing id' }, { status: 400 });
 
   const session = await getSession();
-  await hydrateSavedVideosFromDriveIfNeeded(session?.accessToken);
+  await hydrateSavedVideosFromDriveIfNeeded(session);
 
   const current = await getCookieSavedVideos();
   const next = current.filter((video) => video.id !== cleanId);
 
-  const result = await persistSavedVideos(next, session?.accessToken);
+  const result = await persistSavedVideos(next, session);
   revalidatePath('/videos');
   return Response.json({ ok: true, synced: result.synced, updatedAt: result.updatedAt });
 }

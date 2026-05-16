@@ -9,7 +9,7 @@ import {
 
 export async function POST() {
   const session = await getSession();
-  await hydrateSavedVideosFromDriveIfNeeded(session?.accessToken);
+  await hydrateSavedVideosFromDriveIfNeeded(session);
 
   try {
     const [current, rows] = await Promise.all([
@@ -29,7 +29,7 @@ export async function POST() {
       });
     }
 
-    const persisted = await persistSavedVideos(result.videos, session?.accessToken);
+    const persisted = await persistSavedVideos(result.videos, session);
     revalidatePath('/videos');
     return Response.json({
       ok: true,

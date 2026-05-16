@@ -11,7 +11,7 @@ import {
 
 export async function GET() {
   const session = await getSession();
-  await hydrateSavedVideosFromDriveIfNeeded(session?.accessToken);
+  await hydrateSavedVideosFromDriveIfNeeded(session);
   const videos = await getCookieSavedVideos();
   return Response.json({ ok: true, videos });
 }
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   if (!resolved) return Response.json({ ok: false, error: 'Enter a valid URL.' }, { status: 400 });
 
   const session = await getSession();
-  await hydrateSavedVideosFromDriveIfNeeded(session?.accessToken);
+  await hydrateSavedVideosFromDriveIfNeeded(session);
 
   const current = await getCookieSavedVideos();
   const existingOthers = current.filter((video) => video.id !== resolved.id);
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   };
   const next = [savedVideo, ...existingOthers];
 
-  const result = await persistSavedVideos(next, session?.accessToken);
+  const result = await persistSavedVideos(next, session);
   revalidatePath('/videos');
   return Response.json({ ok: true, savedVideo, synced: result.synced, updatedAt: result.updatedAt });
 }
@@ -53,11 +53,11 @@ export async function POST(req: Request) {
 // Manual sync (push from cookie + pull from drive, merge, write back)
 export async function PUT() {
   const session = await getSession();
-  if (!session?.accessToken) {
+  if (!session?.user) {
     return Response.json({ ok: false, error: 'Not signed in' }, { status: 401 });
   }
 
-  const result = await reconcileSavedVideos(session.accessToken);
+  const result = await reconcileSavedVideos(session);
   revalidatePath('/videos');
   return Response.json({ ok: true, videos: result.videos, synced: result.synced, updatedAt: result.updatedAt });
 }

@@ -2,6 +2,15 @@
 // with the channels/view sync paths that previously kept clobbering it.
 
 import { cookies } from 'next/headers';
+import type { Session } from 'next-auth';
+import {
+  getTubeoUserIdentity,
+} from './supabase-sync';
+import {
+  isSupabaseSavedVideosConfigured,
+  readSupabaseSavedVideos,
+  writeSupabaseSavedVideos,
+} from './supabase-saved-videos';
 export {
   INSTAGRAM_SAVED_PREFIX,
   UNCATEGORIZED_SAVED_CATEGORY,
@@ -150,6 +159,8 @@ interface DrivePayload {
   videos: SavedVideo[];
   updatedAt: string;
 }
+
+type SavedVideosSession = Pick<Session, 'accessToken' | 'user'> | null | undefined;
 
 function escapeDriveQueryValue(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -351,12 +362,67 @@ function mergeByIdPreservingOrder(local: SavedVideo[], remote: SavedVideo[]): Sa
   return out;
 }
 
-// Hydrate cookie from Drive if the cookie is empty + not dirty + Drive has data.
+async function readRemoteSavedVideos(
+  session: SavedVideosSession,
+): Promise<{ videos: SavedVideo[]; updatedAt: string; source: 'supabase' | 'drive' } | null> {
+  const identity = getTubeoUserIdentity(session as Session | null | undefined);
+  if (identity && isSupabaseSavedVideosConfigured()) {
+    try {
+      const supabase = await readSupabaseSavedVideos(identity);
+      if (supabase) return { ...supabase, source: 'supabase' };
+    } catch {
+      // Keep Drive as backup if DB is temporarily unavailable or not migrated yet.
+    }
+
+    if (session?.accessToken) {
+      const drive = await readDriveSavedVideos(session.accessToken);
+      if (drive) {
+        await writeSupabaseSavedVideos(identity, drive.videos).catch(() => null);
+        return { ...drive, source: 'drive' };
+      }
+    }
+
+    return null;
+  }
+
+  if (!session?.accessToken) return null;
+  const drive = await readDriveSavedVideos(session.accessToken);
+  return drive ? { ...drive, source: 'drive' } : null;
+}
+
+async function writeRemoteSavedVideos(
+  session: SavedVideosSession,
+  videos: SavedVideo[],
+): Promise<{ synced: boolean; updatedAt: string; driveBackupOk: boolean }> {
+  const identity = getTubeoUserIdentity(session as Session | null | undefined);
+  if (identity && isSupabaseSavedVideosConfigured()) {
+    const supabase = await writeSupabaseSavedVideos(identity, videos).catch(() => null);
+    let driveBackupOk = false;
+    if (session?.accessToken) {
+      try {
+        await writeDriveSavedVideos(session.accessToken, videos);
+        driveBackupOk = true;
+      } catch {
+        driveBackupOk = false;
+      }
+    }
+    if (supabase) return { synced: true, updatedAt: supabase.updatedAt, driveBackupOk };
+    return { synced: false, updatedAt: new Date().toISOString(), driveBackupOk };
+  }
+
+  if (!session?.accessToken) {
+    return { synced: false, updatedAt: new Date().toISOString(), driveBackupOk: false };
+  }
+
+  const { updatedAt } = await writeDriveSavedVideos(session.accessToken, videos);
+  return { synced: true, updatedAt, driveBackupOk: true };
+}
+
+// Hydrate cookie from Supabase/Drive if the cookie is empty + not dirty + remote has data.
 // Never overwrites a non-empty/dirty cookie.
 export async function hydrateSavedVideosFromDriveIfNeeded(
-  accessToken: string | null | undefined,
+  session: SavedVideosSession,
 ): Promise<void> {
-  if (!accessToken) return;
   const [cookieVideos, meta] = await Promise.all([
     getCookieSavedVideos(),
     getCookieSavedVideosMeta(),
@@ -364,29 +430,27 @@ export async function hydrateSavedVideosFromDriveIfNeeded(
   if (meta.dirty || cookieVideos.length > 0) return;
 
   try {
-    const drive = await readDriveSavedVideos(accessToken);
-    if (!drive) return;
-    await setCookieSavedVideos(drive.videos);
-    await markSavedVideosSynced(drive.updatedAt);
+    const remote = await readRemoteSavedVideos(session);
+    if (!remote) return;
+    await setCookieSavedVideos(remote.videos);
+    await markSavedVideosSynced(remote.updatedAt);
   } catch {
-    // Swallow — Drive will be retried on the next mutation/sync.
+    // Swallow. Remote storage will be retried on the next mutation/sync.
   }
 }
 
 export async function persistSavedVideos(
   videos: SavedVideo[],
-  accessToken: string | null | undefined,
+  session: SavedVideosSession,
 ): Promise<{ synced: boolean; updatedAt: string }> {
   await setCookieSavedVideos(videos);
 
-  if (!accessToken) {
-    const updatedAt = new Date().toISOString();
-    await markSavedVideosDirty(updatedAt);
-    return { synced: false, updatedAt };
-  }
-
   try {
-    const { updatedAt } = await writeDriveSavedVideos(accessToken, videos);
+    const { synced, updatedAt } = await writeRemoteSavedVideos(session, videos);
+    if (!synced) {
+      await markSavedVideosDirty(updatedAt);
+      return { synced: false, updatedAt };
+    }
     await markSavedVideosSynced(updatedAt);
     return { synced: true, updatedAt };
   } catch {
@@ -397,23 +461,27 @@ export async function persistSavedVideos(
 }
 
 // Manual sync (called from the SyncButton path). Merges local + remote and writes back.
-export async function reconcileSavedVideos(accessToken: string): Promise<{
+export async function reconcileSavedVideos(session: SavedVideosSession): Promise<{
   videos: SavedVideo[];
   synced: boolean;
   updatedAt: string;
 }> {
-  const [localVideos, drive] = await Promise.all([
+  const [localVideos, remote] = await Promise.all([
     getCookieSavedVideos(),
-    readDriveSavedVideos(accessToken).catch(() => null),
+    readRemoteSavedVideos(session).catch(() => null),
   ]);
 
-  const remoteVideos = drive?.videos ?? [];
+  const remoteVideos = remote?.videos ?? [];
   const merged = mergeByIdPreservingOrder(localVideos, remoteVideos);
 
   await setCookieSavedVideos(merged);
 
   try {
-    const { updatedAt } = await writeDriveSavedVideos(accessToken, merged);
+    const { synced, updatedAt } = await writeRemoteSavedVideos(session, merged);
+    if (!synced) {
+      await markSavedVideosDirty(updatedAt);
+      return { videos: merged, synced: false, updatedAt };
+    }
     await markSavedVideosSynced(updatedAt);
     return { videos: merged, synced: true, updatedAt };
   } catch {

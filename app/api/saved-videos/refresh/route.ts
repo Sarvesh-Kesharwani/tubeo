@@ -25,7 +25,7 @@ export async function POST() {
     return Response.json({ ok: false, error: 'Sign in required.' }, { status: 401 });
   }
 
-  await withTimeout(hydrateSavedVideosFromDriveIfNeeded(session.accessToken), 3000, undefined);
+  await withTimeout(hydrateSavedVideosFromDriveIfNeeded(session), 3000, undefined);
 
   let saved = await getCookieSavedVideos();
   const [inboxSaved, linkNestRows] = await Promise.all([
@@ -41,7 +41,7 @@ export async function POST() {
   saved = newInboxSaved.length > 0 ? [...newInboxSaved, ...saved] : saved;
 
   if (newInboxSaved.length > 0 || imported.imported.length > 0 || imported.updated > 0) {
-    await persistSavedVideos(saved, session.accessToken);
+    await persistSavedVideos(saved, session);
   }
 
   return Response.json({

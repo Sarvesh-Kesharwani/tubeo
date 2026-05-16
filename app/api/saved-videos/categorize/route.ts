@@ -11,7 +11,7 @@ import { normalizeSavedVideoCategory } from '@/lib/saved-videos-shared';
 
 export async function POST() {
   const session = await getSession();
-  await hydrateSavedVideosFromDriveIfNeeded(session?.accessToken);
+  await hydrateSavedVideosFromDriveIfNeeded(session);
 
   const current = await getCookieSavedVideos();
   const eligible = current.filter((video) => isUncategorizedSavedVideo(video) && video.note.trim());
@@ -41,7 +41,7 @@ export async function POST() {
       return category ? { ...video, category } : video;
     });
     const changed = next.filter((video, index) => video.category !== current[index]?.category).length;
-    const result = await persistSavedVideos(next, session?.accessToken);
+    const result = await persistSavedVideos(next, session);
     revalidatePath('/videos');
     return Response.json({
       ok: true,

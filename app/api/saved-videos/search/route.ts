@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: 'Ask what you want to find.' }, { status: 400 });
   }
 
-  await hydrateSavedVideosFromDriveIfNeeded(session.accessToken);
+  await hydrateSavedVideosFromDriveIfNeeded(session);
   const saved = await getCookieSavedVideos();
   const eligible = saved.filter((video) => video.note.trim());
   if (eligible.length === 0) {
