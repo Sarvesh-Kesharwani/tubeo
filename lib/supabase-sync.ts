@@ -4,6 +4,7 @@ import type { Session } from 'next-auth';
 import {
   buildDriveChannelData,
   normalizeDriveChannelData,
+  normalizeQuotaUsage,
   type DriveChannelData,
   type DriveSyncState,
   type DriveWriteState,
@@ -122,4 +123,54 @@ export async function writeSupabaseSyncState(
   const normalized = normalizeDriveChannelData(rows[0]?.state ?? state);
   if (!normalized) throw new Error('Supabase sync returned invalid state.');
   return normalized;
+}
+
+export async function resetSupabaseDailyUsage(): Promise<{ reset: number }> {
+  const cfg = config();
+  if (!cfg) throw new Error('Tubeo Supabase sync is not configured.');
+
+  const qs = new URLSearchParams({
+    select: 'owner_key,user_email,user_name,state,state_updated_at,updated_at',
+    limit: '1000',
+  });
+  const read = await fetch(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
+    headers: headers(cfg.key),
+    cache: 'no-store',
+  });
+  if (!read.ok) {
+    const detail = await read.text().catch(() => '');
+    throw new Error(`Supabase usage reset read failed: ${read.status} ${detail.slice(0, 200)}`);
+  }
+
+  const rows = (await read.json()) as SupabaseSyncRow[];
+  const now = new Date().toISOString();
+  const emptyQuota = normalizeQuotaUsage(null);
+  await Promise.all(
+    rows.map(async (row) => {
+      const state: DriveChannelData = {
+        ...row.state,
+        quota: emptyQuota,
+        deepseekQuota: emptyQuota,
+        updatedAt: now,
+      };
+      const update = await fetch(`${tableUrl(cfg.url, cfg.table)}?owner_key=eq.${encodeURIComponent(row.owner_key)}`, {
+        method: 'PATCH',
+        headers: {
+          ...headers(cfg.key),
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          state,
+          state_updated_at: now,
+        }),
+        cache: 'no-store',
+      });
+      if (!update.ok) {
+        const detail = await update.text().catch(() => '');
+        throw new Error(`Supabase usage reset write failed: ${update.status} ${detail.slice(0, 200)}`);
+      }
+    }),
+  );
+
+  return { reset: rows.length };
 }

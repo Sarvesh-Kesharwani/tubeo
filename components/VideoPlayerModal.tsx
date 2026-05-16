@@ -61,6 +61,7 @@ export function VideoPlayerModal({
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.error ?? 'Could not load comments');
         setComments(data.comments);
+        if (Number(data.quotaUnits ?? 0) > 0) window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
       })
       .catch((error) => {
         if ((error as Error).name !== 'AbortError') setCommentsError((error as Error).message);

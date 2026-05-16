@@ -1,3 +1,5 @@
+import { recordApiUsage } from './api-usage';
+
 const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/chat/completions';
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 
@@ -21,6 +23,11 @@ interface ChatCompletion {
   choices?: Array<{
     message?: { content?: string };
   }>;
+  usage?: {
+    total_tokens?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
 }
 
 function describeUnknownError(error: unknown): string {
@@ -39,10 +46,12 @@ async function runDeepSeekChat({
   system,
   user,
   maxTokens,
+  operation,
 }: {
   system: string;
   user: string;
   maxTokens: number;
+  operation: string;
 }): Promise<string> {
   const apiKey = getDeepSeekApiKey();
 
@@ -83,8 +92,14 @@ async function runDeepSeekChat({
   if (!content) {
     throw new DeepSeekRequestError('DeepSeek returned no content.', 502);
   }
+  await recordApiUsage('deepseek', operation, data.usage?.total_tokens ?? estimateTokens(system, user, content));
 
   return content;
+}
+
+function estimateTokens(...parts: string[]): number {
+  const chars = parts.reduce((sum, part) => sum + part.length, 0);
+  return Math.max(1, Math.ceil(chars / 4));
 }
 
 export async function fetchVocabMeaning(word: string): Promise<string> {
@@ -98,7 +113,7 @@ export async function fetchVocabMeaning(word: string): Promise<string> {
     'reply with: part of speech, a 1-2 sentence definition, and one short example. ' +
     'Plain text only. No markdown headings, no bullet points, no preamble.';
 
-  return runDeepSeekChat({ system, user: cleaned, maxTokens: 220 });
+  return runDeepSeekChat({ system, user: cleaned, maxTokens: 220, operation: `Vocab meaning: ${cleaned}` });
 }
 
 export interface SavedVideoCategorizationInput {
@@ -199,6 +214,7 @@ async function categorizeSavedVideoBatch(
       system,
       user,
       maxTokens: categorizationMaxTokens(items.length),
+      operation: `Saved videos categorize (${items.length} items)`,
     });
     const parsed = parseJsonPayload(content) as
       | { items?: Array<{ id?: unknown; category?: unknown }> }
@@ -287,7 +303,7 @@ export async function searchSavedVideosByNote(
     items: items.map((item) => ({ id: item.id, note: item.note })),
   });
 
-  const content = await runDeepSeekChat({ system, user, maxTokens: 900 });
+  const content = await runDeepSeekChat({ system, user, maxTokens: 900, operation: 'Saved videos note search' });
   const parsed = parseJsonPayload(content) as
     | { items?: Array<{ id?: unknown; confidence?: unknown; reason?: unknown }> }
     | Array<{ id?: unknown; confidence?: unknown; reason?: unknown }>;
@@ -337,7 +353,7 @@ export async function summarizeTranscriptForCitizen({
     transcript: cleaned.slice(0, MAX_TRANSCRIPT_CHARS),
   });
 
-  const content = await runDeepSeekChat({ system, user, maxTokens: 900 });
+  const content = await runDeepSeekChat({ system, user, maxTokens: 900, operation: `Video summary: ${videoId}` });
   const parsed = parseJsonPayload(content) as { bullets?: unknown } | string[];
   const rawBullets = Array.isArray(parsed) ? parsed : parsed.bullets;
 

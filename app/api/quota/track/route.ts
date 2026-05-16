@@ -1,7 +1,15 @@
-import { getCookieChannelStore } from '@/lib/channels-cookie';
-import { normalizeQuotaUsage } from '@/lib/drive';
+import { readApiUsageSummaries, recordApiUsage } from '@/lib/api-usage';
 import { getSession } from '@/lib/session';
-import { readUserSyncState, writeUserSyncState } from '@/lib/sync-store';
+import type { ApiUsageKind } from '@/lib/types';
+
+export async function GET() {
+  const session = await getSession();
+  if (!session?.user) {
+    return Response.json({ error: 'Not signed in' }, { status: 401 });
+  }
+
+  return Response.json({ ok: true, ...(await readApiUsageSummaries()) });
+}
 
 export async function POST(req: Request) {
   const session = await getSession();
@@ -9,7 +17,7 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Not signed in' }, { status: 401 });
   }
 
-  let body: { units?: number } | null = null;
+  let body: { units?: number; label?: string; kind?: ApiUsageKind } | null = null;
   try {
     body = (await req.json()) as { units?: number };
   } catch {
@@ -20,31 +28,12 @@ export async function POST(req: Request) {
   if (!Number.isFinite(units) || units <= 0) {
     return Response.json({ ok: true, skipped: true });
   }
+  const kind: ApiUsageKind = body?.kind === 'deepseek' ? 'deepseek' : 'youtube';
+  const label = typeof body?.label === 'string' && body.label.trim() ? body.label.trim() : 'Tubeo operation';
 
   try {
-    const [cookieStore, remote] = await Promise.all([
-      getCookieChannelStore(),
-      readUserSyncState(session),
-    ]);
-    const base = remote.state ?? cookieStore;
-    const quota = normalizeQuotaUsage(remote.state?.quota);
-    await writeUserSyncState(session, {
-      channels: base.channels,
-      spaces: base.spaces,
-      view: base.view,
-      viewUpdatedAt: base.viewUpdatedAt,
-      updatesChannelIds: base.updatesChannelIds,
-      vocabs: base.vocabs,
-      ignoredChannels: base.ignoredChannels,
-      discoverSearches: base.discoverSearches,
-      activeDiscoverSearchId: base.activeDiscoverSearchId,
-      quota: {
-        ...quota,
-        used: quota.used + units,
-        updatedAt: new Date().toISOString(),
-      },
-    });
-    return Response.json({ ok: true });
+    await recordApiUsage(kind, label, units);
+    return Response.json({ ok: true, ...(await readApiUsageSummaries()) });
   } catch {
     return Response.json({ error: 'Failed to track quota usage' }, { status: 502 });
   }

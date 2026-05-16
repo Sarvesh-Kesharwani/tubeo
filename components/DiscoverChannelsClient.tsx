@@ -254,6 +254,7 @@ export function DiscoverChannelsClient({
           return;
         }
         applyResponse(data);
+        if (Number(data.quotaUnits ?? 0) > 0) window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
       } catch {
         setState((current) => ({ ...current, error: 'Search failed.' }));
       }
@@ -354,6 +355,7 @@ export function DiscoverChannelsClient({
         ),
         quotaUnits: current.quotaUnits + (data.quotaUnits ?? 1),
       }));
+      if (Number(data.quotaUnits ?? 0) > 0) window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
     } catch {
       setState((current) => ({ ...current, error: 'Stats fetch failed.' }));
     } finally {
@@ -375,6 +377,7 @@ export function DiscoverChannelsClient({
       }
       setTopVideos((current) => ({ ...current, [channelId]: data.videos ?? [] }));
       setState((current) => ({ ...current, quotaUnits: current.quotaUnits + (data.quotaUnits ?? 0) }));
+      if (Number(data.quotaUnits ?? 0) > 0) window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
     } catch {
       setState((current) => ({ ...current, error: 'Top videos fetch failed.' }));
     } finally {

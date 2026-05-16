@@ -6,13 +6,14 @@ import { QuotaCard } from '@/components/QuotaCard';
 import { SpaceChannelsList, type SpaceChannelItem } from '@/components/SpaceChannelsList';
 import { SpaceSettingsRow } from '@/components/SpaceSettingsRow';
 import { SpacesManager, type SpaceItem } from '@/components/SpacesManager';
+import { readApiUsageSummaries } from '@/lib/api-usage';
 import { getSession } from '@/lib/session';
 import {
   getEnvChannelIds,
   getWhitelistedChannelPreferences,
   getWhitelistedChannelSpaces,
 } from '@/lib/whitelist';
-import { getChannels, getYouTubeQuotaSummary } from '@/lib/youtube';
+import { getChannels } from '@/lib/youtube';
 import { isInstagramChannelId, instagramUsernameFromChannelId } from '@/lib/instagram';
 
 export default async function SettingsPage() {
@@ -35,7 +36,7 @@ export default async function SettingsPage() {
     // Show IDs if API fails
   }
 
-  const quota = canViewQuota ? await getYouTubeQuotaSummary(youtubeIds.length, session?.accessToken) : null;
+  const usage = canViewQuota ? await readApiUsageSummaries() : null;
 
   const channelMap = new Map(channels.map((channel) => [channel.id, channel]));
 
@@ -82,7 +83,9 @@ export default async function SettingsPage() {
         <span aria-hidden>⚙️</span> Channels
       </h1>
 
-      {canViewQuota && quota && <QuotaCard quota={quota} />}
+      {canViewQuota && usage && (
+        <QuotaCard youtube={usage.youtube} deepseek={usage.deepseek} resetTimezone={usage.resetTimezone} />
+      )}
 
       {session?.user && <DriveRestoreCard />}
 

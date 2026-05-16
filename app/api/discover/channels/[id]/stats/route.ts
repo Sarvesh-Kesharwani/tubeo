@@ -1,3 +1,4 @@
+import { recordApiUsage } from '@/lib/api-usage';
 import { getYouTubeChannelStats } from '@/lib/youtube';
 
 export async function GET(
@@ -11,6 +12,7 @@ export async function GET(
     if (!stats) {
       return Response.json({ ok: false, error: 'Channel not found.' }, { status: 404 });
     }
+    await recordApiUsage('youtube', `Discover stats: ${id}`, stats.quotaUnits);
 
     return Response.json({ ok: true, ...stats });
   } catch (error) {

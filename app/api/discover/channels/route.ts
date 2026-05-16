@@ -4,6 +4,7 @@ import {
   markCookieChannelStoreSynced,
   setCookieChannelStore,
 } from '@/lib/channels-cookie';
+import { recordApiUsage } from '@/lib/api-usage';
 import { getSession } from '@/lib/session';
 import { readUserSyncState, writeUserSyncState } from '@/lib/sync-store';
 import type { ChannelPreferenceStore, DiscoverSearchFilters, DiscoverSearchPage, DiscoverSearchRecord } from '@/lib/types';
@@ -216,6 +217,7 @@ export async function GET(req: Request) {
       discoverDraft: updatedSearch.filters,
     };
     await persistStore(session, nextStore);
+    await recordApiUsage('youtube', `Discover channel search: ${search.filters.q}`, quotaTotal);
 
     return responsePayload(
       nextStore,

@@ -140,6 +140,7 @@ export function ShortFeedDialog({ open, onClose }: { open: boolean; onClose: () 
       }
       setVideos(fetched);
       setQuotaUnits(Number(data.quotaUnits ?? 0));
+      if (Number(data.quotaUnits ?? 0) > 0) window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
       setActiveId(fetched[0].id);
       setStage('viewing');
     } catch {

@@ -6,6 +6,7 @@ import { NavTabs } from '@/components/NavTabs';
 import { AuthButton } from '@/components/AuthButton';
 import { AppStateTracker } from '@/components/AppStateTracker';
 import { FeatureRequestMenu } from '@/components/FeatureRequestMenu';
+import { HeaderQuotaBar } from '@/components/HeaderQuotaBar';
 import { SyncButton } from '@/components/SyncButton';
 import { HubSsoBridge } from '@/components/HubSsoBridge';
 import './globals.css';
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span>Tubeo</span>
             </Link>
             <div className="flex min-w-0 items-center justify-end gap-1.5 sm:gap-3">
+              <HeaderQuotaBar />
               <FeatureRequestMenu />
               <SyncButton />
               <Link href="/settings" className="chip text-duo-ink/60 hover:text-duo-ink" title="Manage channels">

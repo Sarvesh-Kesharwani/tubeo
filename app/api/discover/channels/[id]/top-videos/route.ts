@@ -1,3 +1,4 @@
+import { recordApiUsage } from '@/lib/api-usage';
 import { getTopVideosForChannel } from '@/lib/youtube';
 
 export async function GET(
@@ -11,6 +12,7 @@ export async function GET(
 
   try {
     const result = await getTopVideosForChannel(id, limit);
+    await recordApiUsage('youtube', `Discover Top ${limit} videos: ${id}`, result.quotaUnits);
     return Response.json({ ok: true, ...result });
   } catch (error) {
     return Response.json(

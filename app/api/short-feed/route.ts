@@ -1,3 +1,4 @@
+import { recordApiUsage } from '@/lib/api-usage';
 import { searchYouTubeShorts } from '@/lib/youtube';
 
 function dayBoundaryIso(date: string, end: boolean): string | undefined {
@@ -33,6 +34,7 @@ export async function GET(req: Request) {
       maxResults: max,
       order,
     });
+    await recordApiUsage('youtube', `Short feed: ${q}`, result.quotaUnits);
     return Response.json({ ok: true, ...result });
   } catch (error) {
     return Response.json(

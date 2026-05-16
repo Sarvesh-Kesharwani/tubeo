@@ -189,6 +189,7 @@ async function Grouped({
       {session.accessToken && quotaUnits > 0 && (
         <QuotaUsageTracker
           units={quotaUnits}
+          label={`Channels page load (${range}, ${activeSpaceValue}, ${media}, ${duration})`}
           trackingKey={`channels:${range}:${activeSpaceValue}:${media}:${duration}:${now}`}
         />
       )}

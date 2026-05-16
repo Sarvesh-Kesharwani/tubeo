@@ -127,6 +127,7 @@ export function DiscoverHistoryClient({
           country: data.country,
         },
       }));
+      if (Number(data.quotaUnits ?? 0) > 0) window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
     } catch {
       setError('Stats fetch failed.');
     } finally {
@@ -148,6 +149,7 @@ export function DiscoverHistoryClient({
         return;
       }
       setTopVideos((current) => ({ ...current, [channelId]: data.videos ?? [] }));
+      if (Number(data.quotaUnits ?? 0) > 0) window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
     } catch {
       setError('Top videos fetch failed.');
     } finally {

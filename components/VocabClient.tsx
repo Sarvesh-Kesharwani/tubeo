@@ -75,6 +75,7 @@ export function VocabClient({ vocabs }: { vocabs: VocabItem[] }) {
       }
       setWord('');
       router.refresh();
+      window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
       window.dispatchEvent(new CustomEvent(CHANNELS_CHANGED_EVENT, { detail: { autoSync: !data?.synced } }));
     } catch {
       setError('Failed to add word.');
@@ -102,6 +103,7 @@ export function VocabClient({ vocabs }: { vocabs: VocabItem[] }) {
         setError(`Lookup failed: ${data.meaningError}`);
       }
       router.refresh();
+      window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
       window.dispatchEvent(new CustomEvent(CHANNELS_CHANGED_EVENT, { detail: { autoSync: !data?.synced } }));
     } catch {
       setError('Failed to refetch meaning.');

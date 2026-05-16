@@ -104,7 +104,11 @@ async function Feed({
   return (
     <>
       {session.accessToken && quotaUnits > 0 && (
-        <QuotaUsageTracker units={quotaUnits} trackingKey={`home:${range}:${media}:${duration}:${now}`} />
+        <QuotaUsageTracker
+          units={quotaUnits}
+          label={`Mixed feed load (${range}, ${media}, ${duration})`}
+          trackingKey={`home:${range}:${media}:${duration}:${now}`}
+        />
       )}
       <MixedFeedClient videos={videos} now={now} />
     </>

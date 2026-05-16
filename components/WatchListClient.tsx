@@ -223,6 +223,7 @@ export function WatchListClient({
       .then((data: { videos?: Video[] }) => {
         if (data.videos?.length) {
           setVideoDetails((current) => mergeVideoDetails(current, data.videos ?? []));
+          window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
         }
       })
       .catch(() => {});
@@ -427,6 +428,7 @@ export function WatchListClient({
         setSaved(data.videos.map((video) => ({ ...video, category: normalizeSavedVideoCategory(video.category) })));
       }
       setMessage(`Categorized ${data.categorized ?? 0} item${data.categorized === 1 ? '' : 's'}.`);
+      window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
       router.refresh();
     } catch {
       setError('Failed to categorize saved items.');
@@ -562,6 +564,7 @@ export function WatchListClient({
       }
 
       const results = data.results ?? [];
+      window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
       setChatMessages((current) => [
         ...current,
         {

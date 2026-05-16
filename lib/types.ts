@@ -114,6 +114,16 @@ export interface DailyQuotaUsage {
   date: string;
   used: number;
   updatedAt: string;
+  operations?: ApiUsageOperation[];
+}
+
+export type ApiUsageKind = 'youtube' | 'deepseek';
+
+export interface ApiUsageOperation {
+  id: string;
+  label: string;
+  units: number;
+  at: string;
 }
 
 export interface Video {
@@ -152,7 +162,26 @@ export interface QuotaSummary {
   sourceLabel: string;
   sourceDetail?: string;
   updatedAt?: string;
+  operations: ApiUsageOperation[];
+  triggerCosts: ApiUsageTriggerCost[];
   channelCalls: number;
   playlistCalls: number;
   videoDetailCalls: number;
+}
+
+export interface ApiUsageTriggerCost {
+  label: string;
+  cost: string;
+}
+
+export interface ApiUsageSummary {
+  kind: ApiUsageKind;
+  label: string;
+  dailyLimit: number;
+  usedToday: number;
+  remainingToday: number;
+  usedTodayPercent: number;
+  updatedAt?: string;
+  operations: ApiUsageOperation[];
+  triggerCosts: ApiUsageTriggerCost[];
 }

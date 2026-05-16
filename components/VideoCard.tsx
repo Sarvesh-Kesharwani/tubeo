@@ -61,6 +61,7 @@ export function VideoCard({
       }
 
       setSummary({ status: 'ready', bullets: data.bullets, error: null });
+      window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
     } catch {
       setSummary({ status: 'error', bullets: [], error: 'Could not summarize this video.' });
     }

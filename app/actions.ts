@@ -15,18 +15,12 @@ import {
   setCookieChannelPreferences,
 } from '@/lib/channels-cookie';
 import { getSession } from '@/lib/session';
+import { recordApiUsage } from '@/lib/api-usage';
 import { normalizeSpaceName } from '@/lib/spaces';
 import { readUserSyncState } from '@/lib/sync-store';
 import { DEFAULT_CHANNEL_SPACE } from '@/lib/types';
 import { getEnvChannelIds } from '@/lib/whitelist';
-
-const API = 'https://www.googleapis.com/youtube/v3';
-
-function apiKey(): string {
-  const k = process.env.YOUTUBE_API_KEY;
-  if (!k) throw new Error('YOUTUBE_API_KEY missing');
-  return k;
-}
+import { getCachedYouTubeJson } from '@/lib/youtube-api-cache';
 
 async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
   const session = await getSession();
@@ -80,18 +74,18 @@ async function resolveToChannelId(raw: string): Promise<string> {
 
   if (parsed.type === 'id') return parsed.value;
 
-  const qs = new URLSearchParams({
+  const result = await getCachedYouTubeJson<{
+    items?: Array<{ snippet?: { channelId?: string } }>;
+  }>('search', {
     part: 'snippet',
     type: 'channel',
     q: parsed.value,
     maxResults: '1',
-    key: apiKey(),
   });
-  const res = await fetch(`${API}/search?${qs}`);
-  if (!res.ok) throw new Error(`YouTube API error: ${res.status}`);
-  const data = await res.json();
+  const data = result.data;
   const id = data.items?.[0]?.snippet?.channelId;
   if (!id) throw new Error(`Channel not found for "${parsed.value}"`);
+  await recordApiUsage('youtube', `Add channel by handle: ${parsed.value}`, result.fromCache ? 0 : 100);
   return id;
 }
 

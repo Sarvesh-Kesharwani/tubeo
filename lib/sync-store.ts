@@ -53,12 +53,21 @@ export async function writeUserSyncState(
   const identity = getTubeoUserIdentity(session);
   const accessToken = session?.accessToken;
   let driveBackupOk = false;
+  let stateToWrite = store;
 
   if (identity && isSupabaseSyncConfigured()) {
-    const state = await writeSupabaseSyncState(identity, store);
+    if (!stateToWrite.quota || !stateToWrite.deepseekQuota) {
+      const existing = await readSupabaseSyncState(identity);
+      stateToWrite = {
+        ...stateToWrite,
+        quota: stateToWrite.quota ?? existing?.quota,
+        deepseekQuota: stateToWrite.deepseekQuota ?? existing?.deepseekQuota,
+      };
+    }
+    const state = await writeSupabaseSyncState(identity, stateToWrite);
     if (accessToken) {
       try {
-        await writeDriveChannels(accessToken, store);
+        await writeDriveChannels(accessToken, stateToWrite);
         driveBackupOk = true;
       } catch {
         driveBackupOk = false;
@@ -68,6 +77,14 @@ export async function writeUserSyncState(
   }
 
   if (!accessToken) throw new Error('No sync destination configured.');
-  await writeDriveChannels(accessToken, store);
+  if (!stateToWrite.quota || !stateToWrite.deepseekQuota) {
+    const existing = await readDriveChannels(accessToken);
+    stateToWrite = {
+      ...stateToWrite,
+      quota: stateToWrite.quota ?? existing?.quota,
+      deepseekQuota: stateToWrite.deepseekQuota ?? existing?.deepseekQuota,
+    };
+  }
+  await writeDriveChannels(accessToken, stateToWrite);
   return { state: null, source: 'drive', driveBackupOk: true };
 }

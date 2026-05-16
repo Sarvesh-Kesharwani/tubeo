@@ -1,5 +1,6 @@
 import { getSession } from '@/lib/session';
-import { getVideosByIds } from '@/lib/youtube';
+import { recordApiUsage } from '@/lib/api-usage';
+import { getVideosByIdsWithQuota } from '@/lib/youtube';
 
 export async function GET(req: Request) {
   const session = await getSession();
@@ -19,7 +20,9 @@ export async function GET(req: Request) {
   }
 
   try {
-    const videos = await getVideosByIds(ids);
+    const result = await getVideosByIdsWithQuota(ids);
+    await recordApiUsage('youtube', `Saved video metadata refresh (${ids.length} ids)`, result.quotaUnits);
+    const videos = result.videos;
     return Response.json({ ok: true, videos });
   } catch {
     return Response.json({ ok: true, videos: [] });

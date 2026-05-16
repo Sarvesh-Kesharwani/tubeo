@@ -6,6 +6,7 @@ import {
   normalizeVocabWord,
   vocabIdFromWord,
   type DailyQuotaUsage,
+  type ApiUsageOperation,
   type ChannelPreference,
   type ChannelPreferenceStore,
   type DiscoverSearchFilters,
@@ -40,16 +41,19 @@ export interface DriveChannelData {
   discoverDraft?: Partial<DiscoverSearchFilters>;
   lastPagePath?: string;
   quota?: DailyQuotaUsage;
+  deepseekQuota?: DailyQuotaUsage;
   updatedAt: string; // ISO
 }
 
 export interface DriveSyncState extends ChannelPreferenceStore {
   quota: DailyQuotaUsage;
+  deepseekQuota: DailyQuotaUsage;
   updatedAt: string;
 }
 
 export interface DriveWriteState extends ChannelPreferenceStore {
   quota?: DailyQuotaUsage | null;
+  deepseekQuota?: DailyQuotaUsage | null;
 }
 
 export interface DriveBackupSummary {
@@ -221,15 +225,36 @@ export function normalizeQuotaUsage(quota?: DailyQuotaUsage | null, now = new Da
     return {
       date: today,
       used: 0,
+      operations: [],
       updatedAt: now.toISOString(),
     };
   }
 
+  const operations = normalizeUsageOperations(quota.operations);
+  const used = Math.max(
+    Math.max(0, Math.floor(quota.used || 0)),
+    operations.reduce((sum, operation) => sum + operation.units, 0),
+  );
+
   return {
     date: today,
-    used: Math.max(0, Math.floor(quota.used || 0)),
+    used,
+    operations,
     updatedAt: quota.updatedAt || now.toISOString(),
   };
+}
+
+function normalizeUsageOperations(value: ApiUsageOperation[] | undefined): ApiUsageOperation[] {
+  return (value ?? [])
+    .map((item) => ({
+      id: String(item?.id ?? '').trim(),
+      label: String(item?.label ?? '').trim(),
+      units: Math.max(0, Math.ceil(Number(item?.units ?? 0))),
+      at: item?.at || new Date().toISOString(),
+    }))
+    .filter((item) => item.id && item.label && item.units > 0)
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+    .slice(-200);
 }
 
 export function normalizeDriveChannelData(data: DriveChannelData | null): DriveSyncState | null {
@@ -262,6 +287,7 @@ export function normalizeDriveChannelData(data: DriveChannelData | null): DriveS
     discoverDraft: normalizeDiscoverFilters(data.discoverDraft),
     lastPagePath,
     quota: normalizeQuotaUsage(data.quota),
+    deepseekQuota: normalizeQuotaUsage(data.deepseekQuota),
     updatedAt: data.updatedAt ?? new Date(0).toISOString(),
   };
 }
@@ -591,6 +617,7 @@ export function buildDriveChannelData(store: DriveWriteState): DriveChannelData 
   const normalizedView = normalizeViewPreferences(store.view ?? DEFAULT_VIEW_PREFERENCES);
   const viewUpdatedAt = store.viewUpdatedAt || new Date().toISOString();
   const normalizedQuota = normalizeQuotaUsage(store.quota);
+  const normalizedDeepSeekQuota = normalizeQuotaUsage(store.deepseekQuota);
   const body: DriveChannelData = {
     channels: normalizedChannels,
     channelIds: normalizedChannels.map((channel) => channel.id),
@@ -605,6 +632,7 @@ export function buildDriveChannelData(store: DriveWriteState): DriveChannelData 
     discoverDraft: normalizeDiscoverFilters(store.discoverDraft),
     lastPagePath: store.lastPagePath,
     quota: normalizedQuota,
+    deepseekQuota: normalizedDeepSeekQuota,
     updatedAt: new Date().toISOString(),
   };
   return body;
@@ -662,6 +690,7 @@ export async function recordDriveQuotaUsage(
     discoverDraft: baseStore.discoverDraft,
     lastPagePath: baseStore.lastPagePath,
     quota: nextQuota,
+    deepseekQuota: existing?.deepseekQuota,
   });
 
   return nextQuota;

@@ -5,9 +5,10 @@ import { useEffect } from 'react';
 interface Props {
   units: number;
   trackingKey: string;
+  label: string;
 }
 
-export function QuotaUsageTracker({ units, trackingKey }: Props) {
+export function QuotaUsageTracker({ units, trackingKey, label }: Props) {
   useEffect(() => {
     if (units <= 0) return;
 
@@ -18,11 +19,15 @@ export function QuotaUsageTracker({ units, trackingKey }: Props) {
     void fetch('/api/quota/track', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ units }),
-    }).catch(() => {
-      sessionStorage.removeItem(sessionKey);
-    });
-  }, [trackingKey, units]);
+      body: JSON.stringify({ units, label, kind: 'youtube' }),
+    })
+      .then((response) => {
+        if (response.ok) window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
+      })
+      .catch(() => {
+        sessionStorage.removeItem(sessionKey);
+      });
+  }, [label, trackingKey, units]);
 
   return null;
 }

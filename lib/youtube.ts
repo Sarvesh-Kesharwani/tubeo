@@ -3,10 +3,12 @@
 
 import 'server-only';
 import { cache } from 'react';
+import { YOUTUBE_DAILY_QUOTA_LIMIT, YOUTUBE_TRIGGER_COSTS } from './api-usage';
 import { hasDriveSyncHydrated } from './channels-cookie';
 import { getQuotaResetTimezone, readDriveChannels, recordDriveQuotaUsage } from './drive';
 import { matchesMediaFilter } from './media';
 import { getRequestTime } from './render';
+import { getCachedYouTubeJson, type YouTubeApiResult } from './youtube-api-cache';
 import { rangeToMs, withinRange } from './time';
 import type {
   Channel,
@@ -21,24 +23,8 @@ import type {
 } from './types';
 import { getWhitelistedChannelIds } from './whitelist';
 
-const API = 'https://www.googleapis.com/youtube/v3';
-export const YOUTUBE_DAILY_QUOTA_LIMIT = 10_000;
-
-function key(): string {
-  const k = process.env.YOUTUBE_API_KEY;
-  if (!k) throw new Error('YOUTUBE_API_KEY missing');
-  return k;
-}
-
-// Fetch wrapper w/ Next revalidation. 10min default; overridable.
-async function yt<T>(path: string, params: Record<string, string>, revalidate = 600): Promise<T> {
-  const qs = new URLSearchParams({ ...params, key: key() }).toString();
-  const res = await fetch(`${API}/${path}?${qs}`, { next: { revalidate } });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`YouTube ${path} ${res.status}: ${body.slice(0, 200)}`);
-  }
-  return res.json() as Promise<T>;
+async function yt<T>(path: string, params: Record<string, string>, _revalidate = 600): Promise<YouTubeApiResult<T>> {
+  return getCachedYouTubeJson<T>(path, params, _revalidate);
 }
 
 // --- Channel meta ---
@@ -194,7 +180,7 @@ export async function searchYouTubeShorts(
   const max = Math.max(1, Math.min(50, Math.floor(params.maxResults ?? 50)));
   let quotaUnits = 0;
 
-  const search = await yt<YTSearchListResp>(
+  const searchResult = await yt<YTSearchListResp>(
     'search',
     {
       part: 'snippet',
@@ -213,14 +199,15 @@ export async function searchYouTubeShorts(
     },
     0,
   );
-  quotaUnits += 100;
+  if (!searchResult.fromCache) quotaUnits += 100;
+  const search = searchResult.data;
 
   const ids = search.items
     .map((item) => (item.id as { videoId?: string }).videoId)
     .filter((id): id is string => Boolean(id));
   if (ids.length === 0) return { videos: [], quotaUnits };
 
-  const data = await yt<YTVideoListResp>(
+  const dataResult = await yt<YTVideoListResp>(
     'videos',
     {
       part: 'snippet,statistics,contentDetails',
@@ -229,7 +216,8 @@ export async function searchYouTubeShorts(
     },
     600,
   );
-  quotaUnits += 1;
+  if (!dataResult.fromCache) quotaUnits += 1;
+  const data = dataResult.data;
 
   const orderIndex = new Map(ids.map((id, index) => [id, index]));
   const videos: ShortFeedVideo[] = data.items
@@ -278,9 +266,15 @@ function isShortByDuration(durationSec: number | undefined): boolean {
 }
 
 async function getVideoDetails(videoIds: string[]): Promise<Map<string, { durationSec?: number; viewCount?: number }>> {
-  if (videoIds.length === 0) return new Map();
+  return (await getVideoDetailsWithQuota(videoIds)).details;
+}
 
-  const data = await yt<YTVideoListResp>(
+async function getVideoDetailsWithQuota(
+  videoIds: string[],
+): Promise<{ details: Map<string, { durationSec?: number; viewCount?: number }>; apiCalls: number }> {
+  if (videoIds.length === 0) return { details: new Map(), apiCalls: 0 };
+
+  const dataResult = await yt<YTVideoListResp>(
     'videos',
     {
       part: 'contentDetails,statistics',
@@ -289,20 +283,24 @@ async function getVideoDetails(videoIds: string[]): Promise<Map<string, { durati
     },
     600,
   );
+  const data = dataResult.data;
 
-  return new Map(
-    data.items.map((item) => {
-      const durationSec = parseDurationToSeconds(item.contentDetails?.duration);
-      const parsedViews = Number(item.statistics?.viewCount);
-      return [
-        item.id,
-        {
-          durationSec,
-          viewCount: Number.isFinite(parsedViews) ? parsedViews : undefined,
-        },
-      ];
-    }),
-  );
+  return {
+    details: new Map(
+      data.items.map((item) => {
+        const durationSec = parseDurationToSeconds(item.contentDetails?.duration);
+        const parsedViews = Number(item.statistics?.viewCount);
+        return [
+          item.id,
+          {
+            durationSec,
+            viewCount: Number.isFinite(parsedViews) ? parsedViews : undefined,
+          },
+        ];
+      }),
+    ),
+    apiCalls: dataResult.fromCache ? 0 : 1,
+  };
 }
 
 function parseStat(value: string | undefined): number | undefined {
@@ -331,7 +329,7 @@ export async function getYouTubeChannelStats(channelId: string): Promise<Channel
   const id = channelId.trim();
   if (!id) return null;
 
-  const data = await yt<YTChannelStatsResp>(
+  const dataResult = await yt<YTChannelStatsResp>(
     'channels',
     {
       part: 'snippet,statistics',
@@ -340,6 +338,7 @@ export async function getYouTubeChannelStats(channelId: string): Promise<Channel
     },
     600,
   );
+  const data = dataResult.data;
   const item = data.items[0];
   if (!item) return null;
 
@@ -348,7 +347,7 @@ export async function getYouTubeChannelStats(channelId: string): Promise<Channel
     viewCount: parseStat(item.statistics?.viewCount),
     videoCount: parseStat(item.statistics?.videoCount),
     country: item.snippet?.country,
-    quotaUnits: 1,
+    quotaUnits: dataResult.fromCache ? 0 : 1,
   };
 }
 
@@ -365,7 +364,7 @@ export async function getYouTubeChannelStatsMany(
   let quotaUnits = 0;
 
   for (const chunk of chunks) {
-    const data = await yt<YTChannelStatsResp>(
+    const dataResult = await yt<YTChannelStatsResp>(
       'channels',
       {
         part: 'snippet,statistics',
@@ -374,14 +373,15 @@ export async function getYouTubeChannelStatsMany(
       },
       600,
     );
-    quotaUnits += 1;
+    if (!dataResult.fromCache) quotaUnits += 1;
+    const data = dataResult.data;
     for (const item of data.items) {
       stats.set(item.id, {
         subscriberCount: item.statistics?.hiddenSubscriberCount ? undefined : parseStat(item.statistics?.subscriberCount),
         viewCount: parseStat(item.statistics?.viewCount),
         videoCount: parseStat(item.statistics?.videoCount),
         country: item.snippet?.country,
-        quotaUnits: 1,
+        quotaUnits: dataResult.fromCache ? 0 : 1,
       });
     }
   }
@@ -409,7 +409,7 @@ export async function getTopVideosForChannel(
 
   let quotaUnits = 0;
 
-  const search = await yt<YTSearchListResp>(
+  const searchResult = await yt<YTSearchListResp>(
     'search',
     {
       part: 'snippet',
@@ -420,14 +420,15 @@ export async function getTopVideosForChannel(
     },
     600,
   );
-  quotaUnits += 100;
+  if (!searchResult.fromCache) quotaUnits += 100;
+  const search = searchResult.data;
 
   const videoIds = search.items
     .map((item) => (item.id as { videoId?: string }).videoId)
     .filter((vid): vid is string => Boolean(vid));
   if (videoIds.length === 0) return { videos: [], quotaUnits };
 
-  const data = await yt<YTVideoListResp>(
+  const dataResult = await yt<YTVideoListResp>(
     'videos',
     {
       part: 'snippet,statistics,contentDetails',
@@ -436,7 +437,8 @@ export async function getTopVideosForChannel(
     },
     600,
   );
-  quotaUnits += 1;
+  if (!dataResult.fromCache) quotaUnits += 1;
+  const data = dataResult.data;
 
   const videos: DiscoveredTopVideo[] = data.items.map((item) => ({
     id: item.id,
@@ -501,7 +503,7 @@ export async function searchYouTubeChannels(params: ChannelSearchParams): Promis
   let quotaUnits = 0;
 
   for (let page = 0; page < 5 && out.size < 50; page++) {
-    const data = await yt<YTSearchListResp>(
+    const dataResult = await yt<YTSearchListResp>(
       'search',
       {
         part: 'snippet',
@@ -520,7 +522,8 @@ export async function searchYouTubeChannels(params: ChannelSearchParams): Promis
       },
       0,
     );
-    quotaUnits += 100;
+    if (!dataResult.fromCache) quotaUnits += 100;
+    const data = dataResult.data;
     nextPageToken = data.nextPageToken;
     prevPageToken = data.prevPageToken;
     totalResults = data.pageInfo?.totalResults ?? totalResults;
@@ -599,6 +602,7 @@ function buildQuotaSummary(
   playlistCalls: number,
   videoDetailCalls: number,
   updatedAt?: string,
+  operations: QuotaSummary['operations'] = [],
 ): QuotaSummary {
   const refreshCost = channelCalls + playlistCalls + videoDetailCalls;
   const remainingToday = Math.max(0, dailyLimit - usedToday);
@@ -613,6 +617,8 @@ function buildQuotaSummary(
     sourceLabel,
     sourceDetail,
     updatedAt,
+    operations,
+    triggerCosts: YOUTUBE_TRIGGER_COSTS,
     channelCalls,
     playlistCalls,
     videoDetailCalls,
@@ -620,16 +626,21 @@ function buildQuotaSummary(
 }
 
 export async function getChannels(ids?: string[]): Promise<Channel[]> {
+  return (await getChannelsWithQuota(ids)).channels;
+}
+
+async function getChannelsWithQuota(ids?: string[]): Promise<{ channels: Channel[]; apiCalls: number }> {
   if (!ids) ids = await getWhitelistedChannelIds();
   ids = ids.filter((id) => /^UC[\w-]{22}$/.test(id));
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { channels: [], apiCalls: 0 };
 
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
 
   const all: Channel[] = [];
+  let apiCalls = 0;
   for (const c of chunks) {
-    const data = await yt<YTChannelListResp>(
+    const dataResult = await yt<YTChannelListResp>(
       'channels',
       {
         part: 'snippet,contentDetails',
@@ -638,6 +649,8 @@ export async function getChannels(ids?: string[]): Promise<Channel[]> {
       },
       3600,
     );
+    if (!dataResult.fromCache) apiCalls += 1;
+    const data = dataResult.data;
     for (const it of data.items) {
       all.push({
         id: it.id,
@@ -650,7 +663,7 @@ export async function getChannels(ids?: string[]): Promise<Channel[]> {
 
   const order = new Map(ids.map((id, i) => [id, i]));
   all.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-  return all;
+  return { channels: all, apiCalls };
 }
 
 export function getEstimatedFeedQuotaSummary(
@@ -700,6 +713,7 @@ export async function getYouTubeQuotaSummary(
       estimated.playlistCalls,
       estimated.videoDetailCalls,
       driveData.quota.updatedAt || driveData.updatedAt,
+      driveData.quota.operations ?? [],
     );
   } catch (error) {
     return {
@@ -739,8 +753,7 @@ async function getLatestVideosForChannelWithQuota(
   const maxPages = isAllTime ? 10 : 3;
 
   for (let page = 0; page < maxPages; page++) {
-    playlistCalls += 1;
-    const data = await yt<YTPlaylistItemsResp>(
+    const dataResult = await yt<YTPlaylistItemsResp>(
       'playlistItems',
       {
         part: 'snippet,contentDetails',
@@ -750,10 +763,13 @@ async function getLatestVideosForChannelWithQuota(
       },
       600,
     );
+    if (!dataResult.fromCache) playlistCalls += 1;
+    const data = dataResult.data;
 
     const videoIds = data.items.map((item) => item.contentDetails.videoId).filter(Boolean);
-    const detailsById = await getVideoDetails(videoIds);
-    videoDetailCalls += videoIds.length > 0 ? 1 : 0;
+    const detailsResult = await getVideoDetailsWithQuota(videoIds);
+    const detailsById = detailsResult.details;
+    videoDetailCalls += detailsResult.apiCalls;
 
     let stop = false;
     for (const it of data.items) {
@@ -812,10 +828,14 @@ export async function getLatestVideosForChannel(
 }
 
 export async function getVideosByIds(videoIds: string[]): Promise<Video[]> {
-  const ids = [...new Set(videoIds.map((id) => id.trim()).filter(Boolean))];
-  if (ids.length === 0) return [];
+  return (await getVideosByIdsWithQuota(videoIds)).videos;
+}
 
-  const data = await yt<YTVideoListResp>(
+export async function getVideosByIdsWithQuota(videoIds: string[]): Promise<{ videos: Video[]; quotaUnits: number }> {
+  const ids = [...new Set(videoIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return { videos: [], quotaUnits: 0 };
+
+  const dataResult = await yt<YTVideoListResp>(
     'videos',
     {
       part: 'snippet,contentDetails,statistics',
@@ -824,6 +844,7 @@ export async function getVideosByIds(videoIds: string[]): Promise<Video[]> {
     },
     600,
   );
+  const data = dataResult.data;
 
   const videos = data.items.map((item) => {
     const durationSec = parseDurationToSeconds(item.contentDetails?.duration);
@@ -846,7 +867,10 @@ export async function getVideosByIds(videoIds: string[]): Promise<Video[]> {
   });
 
   const order = new Map(ids.map((id, index) => [id, index]));
-  return videos.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  return {
+    videos: videos.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)),
+    quotaUnits: dataResult.fromCache ? 0 : 1,
+  };
 }
 
 function classifyComment(text: string): VideoComment['sentiment'] {
@@ -858,12 +882,13 @@ function classifyComment(text: string): VideoComment['sentiment'] {
   return 'neutral';
 }
 
-export async function getVideoComments(videoId: string): Promise<{
+export async function getVideoCommentsWithQuota(videoId: string): Promise<{
   top: VideoComment[];
   positive: VideoComment[];
   negative: VideoComment[];
+  quotaUnits: number;
 }> {
-  const data = await yt<YTCommentThreadsResp>(
+  const dataResult = await yt<YTCommentThreadsResp>(
     'commentThreads',
     {
       part: 'snippet',
@@ -874,6 +899,7 @@ export async function getVideoComments(videoId: string): Promise<{
     },
     600,
   );
+  const data = dataResult.data;
 
   const comments = data.items.map((item) => {
     const snippet = item.snippet.topLevelComment.snippet;
@@ -892,7 +918,17 @@ export async function getVideoComments(videoId: string): Promise<{
     top: byLikes.slice(0, 5),
     positive: byLikes.filter((comment) => comment.sentiment === 'positive').slice(0, 5),
     negative: byLikes.filter((comment) => comment.sentiment === 'negative').slice(0, 5),
+    quotaUnits: dataResult.fromCache ? 0 : 1,
   };
+}
+
+export async function getVideoComments(videoId: string): Promise<{
+  top: VideoComment[];
+  positive: VideoComment[];
+  negative: VideoComment[];
+}> {
+  const { quotaUnits: _quotaUnits, ...comments } = await getVideoCommentsWithQuota(videoId);
+  return comments;
 }
 
 export const getChannelGroupedFeed = cache(async function getChannelGroupedFeed(
@@ -910,7 +946,8 @@ export const getChannelGroupedFeedWithQuota = cache(async function getChannelGro
   perChannel = 6,
   now = getRequestTime(),
 ): Promise<{ groups: ChannelWithVideos[]; quota: QuotaSummary }> {
-  const channels = await getChannels();
+  const channelResult = await getChannelsWithQuota();
+  const channels = channelResult.channels;
   const results = await Promise.all(
     channels.map(async (channel) => {
       const { videos, playlistCalls, videoDetailCalls } = await getLatestVideosForChannelWithQuota(
@@ -923,7 +960,7 @@ export const getChannelGroupedFeedWithQuota = cache(async function getChannelGro
       return { channel, videos, playlistCalls, videoDetailCalls };
     }),
   );
-  const channelCalls = channels.length === 0 ? 0 : Math.ceil(channels.length / 50);
+  const channelCalls = channelResult.apiCalls;
   const playlistCalls = results.reduce((sum, result) => sum + result.playlistCalls, 0);
   const videoDetailCalls = results.reduce((sum, result) => sum + result.videoDetailCalls, 0);
 
@@ -957,8 +994,9 @@ export const getMixedFeedWithQuota = cache(async function getMixedFeedWithQuota(
   perChannel = 10,
   now = getRequestTime(),
 ): Promise<{ videos: Video[]; quota: QuotaSummary }> {
-  const channels = await getChannels();
-  const channelCalls = channels.length === 0 ? 0 : Math.ceil(channels.length / 50);
+  const channelResult = await getChannelsWithQuota();
+  const channels = channelResult.channels;
+  const channelCalls = channelResult.apiCalls;
   const results = await Promise.all(
     channels.map(async (channel) => {
       const { videos, playlistCalls, videoDetailCalls } = await getLatestVideosForChannelWithQuota(
