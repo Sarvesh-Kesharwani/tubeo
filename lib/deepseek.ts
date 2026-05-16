@@ -116,6 +116,17 @@ export interface SavedVideoCategorization {
   category: string;
 }
 
+export interface SavedVideoNoteSearchInput {
+  id: string;
+  note: string;
+}
+
+export interface SavedVideoNoteSearchResult {
+  id: string;
+  confidence: number;
+  reason: string;
+}
+
 function parseJsonPayload(text: string): unknown {
   const cleaned = text
     .trim()
@@ -187,4 +198,57 @@ export async function categorizeSavedVideos(
       ...item,
       category: item.category.slice(0, 40),
     }));
+}
+
+export async function searchSavedVideosByNote(
+  query: string,
+  items: SavedVideoNoteSearchInput[],
+): Promise<SavedVideoNoteSearchResult[]> {
+  const cleaned = query.trim();
+  if (!cleaned || items.length === 0) return [];
+
+  const system =
+    'You search saved videos using only the user note attached to each saved video. ' +
+    'Do not infer relevance from URLs, titles, ids, categories, or external knowledge. ' +
+    'Return only items whose note is strongly relevant to the query. ' +
+    'Use confidence as an integer from 0 to 100. ' +
+    'Return strict JSON only with shape {"items":[{"id":"...","confidence":90,"reason":"..."}]}. ' +
+    'No markdown, no comments, no extra keys.';
+
+  const user = JSON.stringify({
+    query: cleaned,
+    rules: [
+      'Search note text only.',
+      'Include item only when confidence is greater than 75.',
+      'Sort by confidence descending.',
+      'Reason must be short and based only on note text.',
+    ],
+    items: items.map((item) => ({ id: item.id, note: item.note })),
+  });
+
+  const content = await runDeepSeekChat({ system, user, maxTokens: 900 });
+  const parsed = parseJsonPayload(content) as
+    | { items?: Array<{ id?: unknown; confidence?: unknown; reason?: unknown }> }
+    | Array<{ id?: unknown; confidence?: unknown; reason?: unknown }>;
+  const itemsPayload = Array.isArray(parsed) ? parsed : parsed.items;
+
+  return (itemsPayload ?? [])
+    .map((item) => {
+      const confidence =
+        typeof item.confidence === 'number'
+          ? item.confidence
+          : Number.parseFloat(typeof item.confidence === 'string' ? item.confidence : '');
+      return {
+        id: typeof item.id === 'string' ? item.id.trim() : '',
+        confidence,
+        reason: typeof item.reason === 'string' ? item.reason.trim() : '',
+      };
+    })
+    .filter((item) => item.id && Number.isFinite(item.confidence) && item.confidence > 75)
+    .map((item) => ({
+      id: item.id,
+      confidence: Math.max(0, Math.min(100, Math.round(item.confidence))),
+      reason: item.reason.slice(0, 160),
+    }))
+    .sort((a, b) => b.confidence - a.confidence);
 }

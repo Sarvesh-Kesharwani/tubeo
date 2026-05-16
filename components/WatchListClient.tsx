@@ -16,6 +16,19 @@ import {
 
 const BASE_CATEGORIES = [UNCATEGORIZED_SAVED_CATEGORY, 'Watch Later'];
 
+interface ChatResult {
+  video: SavedVideo;
+  confidence: number;
+  reason?: string;
+}
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  results?: ChatResult[];
+}
+
 function getHostname(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -102,6 +115,16 @@ export function WatchListClient({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [chatQuery, setChatQuery] = useState('');
+  const [chatPending, setChatPending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      text: 'Ask for saved videos by your notes. Matches above 75% confidence appear here.',
+    },
+  ]);
   const initialKey = useRef(savedKey(initialSaved));
   const didRefreshSources = useRef(false);
   const feedViewportRef = useRef<HTMLDivElement>(null);
@@ -461,6 +484,74 @@ export function WatchListClient({
     }
   }
 
+  async function handleChatSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = chatQuery.trim();
+    if (!query || chatPending) return;
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      text: query,
+    };
+    setChatMessages((current) => [...current, userMessage]);
+    setChatQuery('');
+    setChatError(null);
+    setChatPending(true);
+
+    try {
+      const response = await fetch('/api/saved-videos/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        results?: ChatResult[];
+        error?: string;
+      } | null;
+      if (!response.ok || !data?.ok) {
+        const nextError = data?.error ?? 'Failed to search saved videos.';
+        setChatError(nextError);
+        setChatMessages((current) => [
+          ...current,
+          {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            text: nextError,
+          },
+        ]);
+        return;
+      }
+
+      const results = data.results ?? [];
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          text:
+            results.length > 0
+              ? `Found ${results.length} saved video${results.length === 1 ? '' : 's'} above 75% confidence.`
+              : 'No saved videos crossed 75% confidence from notes.',
+          results,
+        },
+      ]);
+    } catch {
+      setChatError('Failed to search saved videos.');
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          text: 'Failed to search saved videos.',
+        },
+      ]);
+    } finally {
+      setChatPending(false);
+    }
+  }
+
   function handleOpenFeed() {
     setActiveFeedId(sorted[0]?.id ?? null);
     setFeedOpen(true);
@@ -608,90 +699,175 @@ export function WatchListClient({
     );
   }
 
+  function renderChatResultCard(result: ChatResult) {
+    const item = result.video;
+    const kind = getSavedVideoKind(item);
+    const video = videoById.get(item.id);
+    const title = video?.title ?? (kind === 'webpage' ? getHostname(item.url) : item.url);
+    const category = normalizeSavedVideoCategory(item.category);
+
+    return (
+      <article key={item.id} className="rounded-2xl border-2 border-duo-border bg-white p-2 shadow-card">
+        <a href={item.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border-2 border-duo-border bg-duo-soft">
+          {kind === 'youtube' ? (
+            <img
+              src={`https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`}
+              alt=""
+              className="aspect-video w-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="flex aspect-video items-center justify-center px-3 text-center text-sm font-black text-duo-ink">
+              {kind === 'instagram' ? 'Instagram saved video' : getHostname(item.url)}
+            </div>
+          )}
+        </a>
+        <div className="mt-2 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="line-clamp-2 min-w-0 text-sm font-extrabold text-duo-ink">{title}</h3>
+            <span className="shrink-0 rounded-full bg-duo-green/10 px-2 py-1 text-[10px] font-black text-duo-greenDark">
+              {result.confidence}%
+            </span>
+          </div>
+          <p className="line-clamp-3 text-xs font-bold text-duo-mute">{item.note || 'No note'}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="chip cursor-default px-2 py-1 text-[10px]">{category}</span>
+            {result.reason && <span className="text-[11px] font-bold text-duo-mute">{result.reason}</span>}
+          </div>
+        </div>
+      </article>
+    );
+  }
+
   return (
     <>
-      <section className="card p-4 sm:p-5">
-        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void handleCategorize()}
-              disabled={categorizePending || uncategorizedWithNoteCount === 0}
-              className="btn-duo-blue"
-            >
-              {categorizePending ? 'Categorizing...' : 'AI categorize'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleImportLinkNest()}
-              disabled={linkNestPending}
-              className="btn-duo-green"
-            >
-              {linkNestPending ? 'Fetching...' : 'Fetch LinkNest'}
-            </button>
-            <button
-              type="button"
-              onClick={handleOpenFeed}
-              disabled={sorted.length === 0}
-              className="btn-duo-ghost"
-            >
-              Watch Feed
-            </button>
-            <button
-              type="button"
-              onClick={() => setShortFeedOpen(true)}
-              className="btn-duo-ghost"
-              title="Fetch up to 50 YouTube Shorts by keyword + date range"
-            >
-              Short Feed
-            </button>
-          </div>
-          <span className="text-xs font-bold text-duo-mute">
-            {uncategorizedWithNoteCount} uncategorized with notes
-          </span>
-        </div>
-        <form
-          className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)_auto]"
-          onSubmit={handleAdd}
-        >
-          <input
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="Paste YouTube, Instagram, or webpage URL"
-            className="min-w-0 rounded-chonk border-2 border-duo-border px-4 py-2 text-sm font-bold outline-none focus:border-duo-green"
-            required
-          />
-          <input
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Tag or note"
-            className="min-w-0 rounded-chonk border-2 border-duo-border px-4 py-2 text-sm font-bold outline-none focus:border-duo-green"
-          />
-          <button type="submit" className="btn-duo-green" disabled={pending}>
-            {pending ? '...' : 'Add'}
-          </button>
-        </form>
-        {message && <p className="mt-3 text-sm font-bold text-duo-greenDark">{message}</p>}
-        {error && <p className="mt-3 text-sm font-bold text-red-500">{error}</p>}
-      </section>
-
-      {sorted.length === 0 ? (
-        <div className="card p-8 text-center font-bold text-duo-mute">No saved videos yet.</div>
-      ) : (
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
         <div className="space-y-5">
-          {grouped.map((group) => (
-            <section key={group.category} className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-extrabold text-duo-ink">{group.category}</h2>
-                <span className="chip cursor-default text-xs">{group.items.length}</span>
+          <section className="card p-4 sm:p-5">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCategorize()}
+                  disabled={categorizePending || uncategorizedWithNoteCount === 0}
+                  className="btn-duo-blue"
+                >
+                  {categorizePending ? 'Categorizing...' : 'AI categorize'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleImportLinkNest()}
+                  disabled={linkNestPending}
+                  className="btn-duo-green"
+                >
+                  {linkNestPending ? 'Fetching...' : 'Fetch LinkNest'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenFeed}
+                  disabled={sorted.length === 0}
+                  className="btn-duo-ghost"
+                >
+                  Watch Feed
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShortFeedOpen(true)}
+                  className="btn-duo-ghost"
+                  title="Fetch up to 50 YouTube Shorts by keyword + date range"
+                >
+                  Short Feed
+                </button>
               </div>
-              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-                {group.items.map(renderSavedCard)}
-              </div>
-            </section>
-          ))}
+              <span className="text-xs font-bold text-duo-mute">
+                {uncategorizedWithNoteCount} uncategorized with notes
+              </span>
+            </div>
+            <form
+              className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)_auto]"
+              onSubmit={handleAdd}
+            >
+              <input
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder="Paste YouTube, Instagram, or webpage URL"
+                className="min-w-0 rounded-chonk border-2 border-duo-border px-4 py-2 text-sm font-bold outline-none focus:border-duo-green"
+                required
+              />
+              <input
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="Tag or note"
+                className="min-w-0 rounded-chonk border-2 border-duo-border px-4 py-2 text-sm font-bold outline-none focus:border-duo-green"
+              />
+              <button type="submit" className="btn-duo-green" disabled={pending}>
+                {pending ? '...' : 'Add'}
+              </button>
+            </form>
+            {message && <p className="mt-3 text-sm font-bold text-duo-greenDark">{message}</p>}
+            {error && <p className="mt-3 text-sm font-bold text-red-500">{error}</p>}
+          </section>
+
+          {sorted.length === 0 ? (
+            <div className="card p-8 text-center font-bold text-duo-mute">No saved videos yet.</div>
+          ) : (
+            <div className="space-y-5">
+              {grouped.map((group) => (
+                <section key={group.category} className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-lg font-extrabold text-duo-ink">{group.category}</h2>
+                    <span className="chip cursor-default text-xs">{group.items.length}</span>
+                  </div>
+                  <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                    {group.items.map(renderSavedCard)}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+
+        <aside className="card flex max-h-[calc(100vh-7rem)] min-h-[32rem] flex-col p-4 xl:sticky xl:top-24">
+          <div className="border-b-2 border-duo-border pb-3">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-duo-greenDark">Video Chat</p>
+            <h2 className="text-xl font-extrabold text-duo-ink">Search saved notes</h2>
+          </div>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-3 pr-1">
+            {chatMessages.map((chat) => (
+              <div
+                key={chat.id}
+                className={
+                  chat.role === 'user'
+                    ? 'ml-auto max-w-[85%] rounded-2xl bg-duo-green px-3 py-2 text-sm font-bold text-white'
+                    : 'max-w-full rounded-2xl border-2 border-duo-border bg-duo-soft px-3 py-2 text-sm font-bold text-duo-ink'
+                }
+              >
+                <p>{chat.text}</p>
+                {chat.results && chat.results.length > 0 && (
+                  <div className="mt-3 space-y-3">{chat.results.map(renderChatResultCard)}</div>
+                )}
+              </div>
+            ))}
+            {chatPending && (
+              <div className="w-fit rounded-2xl border-2 border-duo-border bg-duo-soft px-3 py-2 text-sm font-bold text-duo-mute">
+                Searching notes...
+              </div>
+            )}
+          </div>
+          <form className="mt-3 flex gap-2 border-t-2 border-duo-border pt-3" onSubmit={handleChatSubmit}>
+            <input
+              value={chatQuery}
+              onChange={(event) => setChatQuery(event.currentTarget.value)}
+              placeholder="Ask from saved notes"
+              className="min-w-0 flex-1 rounded-chonk border-2 border-duo-border px-3 py-2 text-sm font-bold outline-none focus:border-duo-green"
+            />
+            <button type="submit" className="btn-duo-green px-4 py-2" disabled={chatPending || !chatQuery.trim()}>
+              Ask
+            </button>
+          </form>
+          {chatError && <p className="mt-2 text-xs font-bold text-red-500">{chatError}</p>}
+        </aside>
+      </div>
 
       {feedOpen && (
         <div className="fixed inset-0 z-50 bg-duo-ink/80 px-3 py-4 backdrop-blur-sm">
