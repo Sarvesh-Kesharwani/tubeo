@@ -50,38 +50,60 @@ interface SupabaseNewsRawRow {
   fetched_at?: string;
 }
 
-function stateConfig(): { url: string; key: string; table: string } | null {
-  const url = process.env.TUBEO_SUPABASE_URL?.trim();
-  const key =
+interface SupabaseNewsConfig {
+  url: string;
+  key: string;
+  accessToken?: string;
+  table: string;
+}
+
+function newsKey(): string {
+  return (
     process.env.TUBEO_SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.TUBEO_SUPABASE_SECRET_KEY?.trim();
+    process.env.TUBEO_SUPABASE_SECRET_KEY?.trim() ||
+    process.env.TUBEO_SUPABASE_NEWS_KEY?.trim() ||
+    process.env.TUBEO_SUPABASE_ANON_KEY?.trim() ||
+    process.env.TUBEO_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+    ''
+  );
+}
+
+function newsAccessToken(): string {
+  return process.env.TUBEO_SUPABASE_NEWS_ACCESS_TOKEN?.trim() || '';
+}
+
+function stateConfig(): SupabaseNewsConfig | null {
+  const url = process.env.TUBEO_SUPABASE_URL?.trim();
+  const key = newsKey();
+  const accessToken = newsAccessToken();
   const table = process.env.TUBEO_SUPABASE_NEWS_STATE_TABLE?.trim() || DEFAULT_STATE_TABLE;
 
   if (!url || !key) return null;
-  return { url: url.replace(/\/+$/, ''), key, table };
+  return { url: url.replace(/\/+$/, ''), key, accessToken, table };
 }
 
-function rawConfig(): { url: string; key: string; table: string } | null {
+function rawConfig(): SupabaseNewsConfig | null {
   const url = process.env.TUBEO_SUPABASE_URL?.trim();
-  const key =
-    process.env.TUBEO_SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.TUBEO_SUPABASE_SECRET_KEY?.trim();
+  const key = newsKey();
+  const accessToken = newsAccessToken();
   const table = process.env.TUBEO_SUPABASE_NEWS_RAW_TABLE?.trim() || DEFAULT_RAW_TABLE;
 
   if (!url || !key) return null;
-  return { url: url.replace(/\/+$/, ''), key, table };
+  return { url: url.replace(/\/+$/, ''), key, accessToken, table };
 }
 
 export function isSupabaseNewsConfigured(): boolean {
   return Boolean(stateConfig()) && Boolean(rawConfig());
 }
 
-function headers(key: string) {
-  return {
-    apikey: key,
-    Authorization: `Bearer ${key}`,
+function headers(cfg: SupabaseNewsConfig) {
+  const out: Record<string, string> = {
+    apikey: cfg.key,
+    Authorization: `Bearer ${cfg.key}`,
     'Content-Type': 'application/json',
   };
+  if (cfg.accessToken) out['x-tubeo-news-token'] = cfg.accessToken;
+  return out;
 }
 
 function tableUrl(baseUrl: string, table: string): string {
@@ -137,7 +159,7 @@ export async function readNewsState(
     limit: '1',
   });
   const res = await fetch(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
-    headers: headers(cfg.key),
+    headers: headers(cfg),
     cache: 'no-store',
   });
 
@@ -176,7 +198,7 @@ async function writeNewsStateRow(
   const res = await fetch(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
     method: 'POST',
     headers: {
-      ...headers(cfg.key),
+      ...headers(cfg),
       Prefer: 'resolution=merge-duplicates,return=representation',
     },
     body: JSON.stringify(row),
@@ -234,7 +256,7 @@ export async function readNewsRaw(date: string): Promise<NewsRawEntry | null> {
     limit: '1',
   });
   const res = await fetch(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
-    headers: headers(cfg.key),
+    headers: headers(cfg),
     cache: 'no-store',
   });
 
@@ -269,7 +291,7 @@ export async function writeNewsRaw(entry: NewsRawEntry): Promise<void> {
   const res = await fetch(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
     method: 'POST',
     headers: {
-      ...headers(cfg.key),
+      ...headers(cfg),
       Prefer: 'resolution=merge-duplicates,return=minimal',
     },
     body: JSON.stringify(row),
