@@ -1,5 +1,6 @@
 'use client';
 
+import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { NewsLoadResult } from '@/lib/news-service';
@@ -63,7 +64,146 @@ function RenderUnknown({ value, depth = 0 }: { value: unknown; depth?: number })
   return null;
 }
 
+/* ──── Table renderer for known summary JSON shapes ──── */
+
+function bulletList(items: unknown[]): React.ReactNode {
+  return (
+    <ul className="list-disc space-y-0.5 pl-4">
+      {items.map((item, i) => (
+        <li key={i} className="text-sm leading-relaxed">{String(item)}</li>
+      ))}
+    </ul>
+  );
+}
+
+function cellValue(value: unknown): React.ReactNode {
+  if (value === null || value === undefined) return <span className="text-duo-mute italic">—</span>;
+  if (Array.isArray(value)) return bulletList(value);
+  const s = String(value);
+  if (s.length < 200) return <span className="whitespace-pre-wrap">{s}</span>;
+  return <span className="whitespace-pre-wrap text-xs">{s}</span>;
+}
+
+function renderTable(data: Record<string, unknown>): React.ReactNode {
+  // Default prompt: { sections: [{ heading, bullets }] }
+  if (Array.isArray(data.sections) && data.sections.length > 0) {
+    const rows = data.sections as Array<Record<string, unknown>>;
+    return (
+      <div className="overflow-x-auto rounded-2xl border-2 border-duo-border">
+        <table className="w-full text-sm">
+          <thead className="bg-duo-soft/60">
+            <tr>
+              <th className="px-4 py-2.5 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute w-[30%]">Topic</th>
+              <th className="px-4 py-2.5 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute">Key Points</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-duo-border">
+            {rows.map((row, i) => (
+              <tr key={i} className="hover:bg-duo-soft/30 transition-colors">
+                <td className="px-4 py-2.5 align-top font-semibold text-duo-ink">
+                  {String(row.heading ?? row.title ?? '')}
+                </td>
+                <td className="px-4 py-2.5 align-top text-duo-ink">
+                  {Array.isArray(row.bullets) ? bulletList(row.bullets) : cellValue(row.bullets)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // Custom/example prompt: { topics: [{ title, why_it_matters, bullets, tags }] }
+  if (Array.isArray(data.topics) && data.topics.length > 0) {
+    const rows = data.topics as Array<Record<string, unknown>>;
+    const sample = rows[0];
+    const cols: { key: string; label: string }[] = [];
+    if ('title' in sample || 'heading' in sample || 'topic' in sample)
+      cols.push({ key: 'title', label: 'Topic' });
+    if ('why_it_matters' in sample)
+      cols.push({ key: 'why_it_matters', label: 'Why It Matters' });
+    if ('bullets' in sample || 'points' in sample)
+      cols.push({ key: 'bullets', label: 'Key Points' });
+    if ('tags' in sample)
+      cols.push({ key: 'tags', label: 'Tags' });
+    // Fallback: any other keys
+    const known = new Set(cols.map((c) => c.key));
+    for (const k of Object.keys(sample)) {
+      if (!known.has(k)) cols.push({ key: k, label: prettyKey(k) });
+    }
+
+    return (
+      <div className="overflow-x-auto rounded-2xl border-2 border-duo-border">
+        <table className="w-full text-sm">
+          <thead className="bg-duo-soft/60">
+            <tr>
+              {cols.map((col) => (
+                <th key={col.key} className="px-4 py-2.5 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute">
+                  {col.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-duo-border">
+            {rows.map((row, i) => (
+              <tr key={i} className="hover:bg-duo-soft/30 transition-colors">
+                {cols.map((col, j) => (
+                  <td key={j} className={`px-4 py-2.5 align-top text-duo-ink ${j === 0 ? 'font-semibold' : ''}`}>
+                    {cellValue(row[col.key])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // Generic: detect any top-level key whose value is an array of objects
+  for (const [key, val] of Object.entries(data)) {
+    if (Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === 'object') {
+      const rows = val as Array<Record<string, unknown>>;
+      const subCols = Object.keys(rows[0]).map((k) => ({ key: k, label: prettyKey(k) }));
+      return (
+        <div className="overflow-x-auto rounded-2xl border-2 border-duo-border">
+          <table className="w-full text-sm">
+            <thead className="bg-duo-soft/60">
+              <tr>
+                {subCols.map((col) => (
+                  <th key={col.key} className="px-4 py-2.5 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute">
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-duo-border">
+              {rows.map((row, i) => (
+                <tr key={i} className="hover:bg-duo-soft/30 transition-colors">
+                  {subCols.map((col, j) => (
+                    <td key={j} className={`px-4 py-2.5 align-top text-duo-ink ${j === 0 ? 'font-semibold' : ''}`}>
+                      {cellValue(row[col.key])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+  }
+
+  return null;
+}
+
 function SummaryBody({ summary }: { summary: NewsSummaryEntry }) {
+  if (summary.data && typeof summary.data === 'object' && !Array.isArray(summary.data)) {
+    const table = renderTable(summary.data as Record<string, unknown>);
+    if (table) return <>{table}</>;
+    return <RenderUnknown value={summary.data} />;
+  }
   if (summary.data && (typeof summary.data === 'object' || Array.isArray(summary.data))) {
     return <RenderUnknown value={summary.data} />;
   }
