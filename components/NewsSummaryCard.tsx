@@ -22,135 +22,97 @@ function RenderUnknown({ value, depth = 0 }: { value: unknown; depth?: number })
     return <p className="text-sm leading-relaxed text-duo-ink">{String(value)}</p>;
   }
   if (Array.isArray(value)) {
-    const allScalar = value.every((item) => ['string', 'number', 'boolean'].includes(typeof item));
-    if (allScalar) {
-      return (
-        <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-duo-ink">
-          {value.map((item, i) => (
-            <li key={i}>{String(item)}</li>
-          ))}
-        </ul>
-      );
-    }
     return (
-      <div className={depth >= 1 ? 'space-y-2' : 'space-y-3'}>
+      <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-duo-ink">
         {value.map((item, i) => (
-          <RenderUnknown key={i} value={item} depth={depth + 1} />
+          <li key={i}>{String(item)}</li>
         ))}
-      </div>
+      </ul>
     );
   }
   if (typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
     return (
       <div className={depth === 0 ? 'space-y-4' : 'space-y-2'}>
-        {entries.map(([key, child], i) => {
-          const headingClass =
-            depth === 0
-              ? 'text-base font-extrabold text-duo-blueDark'
-              : depth === 1
-                ? 'text-sm font-bold text-duo-ink'
-                : 'text-xs font-bold uppercase tracking-wide text-duo-mute';
-          return (
-            <div key={`${key}-${i}`} className={depth === 0 ? 'card p-4 space-y-2' : 'space-y-1'}>
-              <div className={headingClass}>{prettyKey(key)}</div>
-              <RenderUnknown value={child} depth={depth + 1} />
+        {entries.map(([key, child], i) => (
+          <div key={`${key}-${i}`} className={depth === 0 ? 'card p-4 space-y-2' : 'space-y-1'}>
+            <div className={depth === 0 ? 'text-base font-extrabold text-duo-blueDark' : 'text-xs font-bold uppercase tracking-wide text-duo-mute'}>
+              {prettyKey(key)}
             </div>
-          );
-        })}
+            <RenderUnknown value={child} depth={depth + 1} />
+          </div>
+        ))}
       </div>
     );
   }
   return null;
 }
 
-/* ──── Table renderer for known summary JSON shapes ──── */
-
 function bulletList(items: unknown[]): React.ReactNode {
   return (
-    <ul className="list-disc space-y-0.5 pl-4">
+    <ul className="list-disc space-y-1 pl-4">
       {items.map((item, i) => (
-        <li key={i} className="text-sm leading-relaxed">{String(item)}</li>
+        <li key={i} className="text-sm leading-relaxed">
+          {String(item)}
+        </li>
       ))}
     </ul>
   );
 }
 
 function cellValue(value: unknown): React.ReactNode {
-  if (value === null || value === undefined) return <span className="text-duo-mute italic">—</span>;
+  if (value === null || value === undefined || value === '') {
+    return <span className="italic text-duo-mute">-</span>;
+  }
   if (Array.isArray(value)) return bulletList(value);
-  const s = String(value);
-  if (s.length < 200) return <span className="whitespace-pre-wrap">{s}</span>;
-  return <span className="whitespace-pre-wrap text-xs">{s}</span>;
+  if (typeof value === 'object') return <RenderUnknown value={value} depth={2} />;
+
+  const text = String(value);
+  return <span className={`whitespace-pre-wrap ${text.length > 220 ? 'text-xs leading-relaxed' : ''}`}>{text}</span>;
 }
 
-function renderTable(data: Record<string, unknown>): React.ReactNode {
-  // Default prompt: { sections: [{ heading, bullets }] }
-  if (Array.isArray(data.sections) && data.sections.length > 0) {
-    const rows = data.sections as Array<Record<string, unknown>>;
-    return (
-      <div className="overflow-x-auto rounded-2xl border-2 border-duo-border">
-        <table className="w-full text-sm">
-          <thead className="bg-duo-soft/60">
-            <tr>
-              <th className="px-4 py-2.5 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute w-[30%]">Topic</th>
-              <th className="px-4 py-2.5 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute">Key Points</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-duo-border">
-            {rows.map((row, i) => (
-              <tr key={i} className="hover:bg-duo-soft/30 transition-colors">
-                <td className="px-4 py-2.5 align-top font-semibold text-duo-ink">
-                  {String(row.heading ?? row.title ?? '')}
-                </td>
-                <td className="px-4 py-2.5 align-top text-duo-ink">
-                  {Array.isArray(row.bullets) ? bulletList(row.bullets) : cellValue(row.bullets)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
+function firstDisplayValue(row: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
   }
+  return '';
+}
 
-  // Custom/example prompt: { topics: [{ title, why_it_matters, bullets, tags }] }
-  if (Array.isArray(data.topics) && data.topics.length > 0) {
-    const rows = data.topics as Array<Record<string, unknown>>;
-    const sample = rows[0];
-    const cols: { key: string; label: string }[] = [];
-    if ('title' in sample || 'heading' in sample || 'topic' in sample)
-      cols.push({ key: 'title', label: 'Topic' });
-    if ('why_it_matters' in sample)
-      cols.push({ key: 'why_it_matters', label: 'Why It Matters' });
-    if ('bullets' in sample || 'points' in sample)
-      cols.push({ key: 'bullets', label: 'Key Points' });
-    if ('tags' in sample)
-      cols.push({ key: 'tags', label: 'Tags' });
-    // Fallback: any other keys
-    const known = new Set(cols.map((c) => c.key));
-    for (const k of Object.keys(sample)) {
-      if (!known.has(k)) cols.push({ key: k, label: prettyKey(k) });
-    }
+interface SummaryColumn {
+  key: string;
+  label: string;
+  className?: string;
+  getValue?: (row: Record<string, unknown>) => unknown;
+}
 
-    return (
-      <div className="overflow-x-auto rounded-2xl border-2 border-duo-border">
-        <table className="w-full text-sm">
-          <thead className="bg-duo-soft/60">
+function TableShell({ columns, rows }: { columns: SummaryColumn[]; rows: Array<Record<string, unknown>> }) {
+  return (
+    <div className="overflow-hidden rounded-chonk border-2 border-duo-border bg-white shadow-duo">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] text-sm">
+          <thead className="bg-gradient-to-r from-duo-green/15 via-duo-blue/10 to-duo-yellow/20">
             <tr>
-              {cols.map((col) => (
-                <th key={col.key} className="px-4 py-2.5 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute">
-                  {col.label}
+              <th className="w-12 px-4 py-3 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute">
+                #
+              </th>
+              {columns.map((column) => (
+                <th
+                  key={column.key}
+                  className={`px-4 py-3 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute ${column.className ?? ''}`}
+                >
+                  {column.label}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-duo-border">
             {rows.map((row, i) => (
-              <tr key={i} className="hover:bg-duo-soft/30 transition-colors">
-                {cols.map((col, j) => (
-                  <td key={j} className={`px-4 py-2.5 align-top text-duo-ink ${j === 0 ? 'font-semibold' : ''}`}>
-                    {cellValue(row[col.key])}
+              <tr key={i} className="align-top transition-colors odd:bg-white even:bg-duo-soft/20 hover:bg-duo-green/10">
+                <td className="px-4 py-3 font-extrabold text-duo-greenDark">{i + 1}</td>
+                {columns.map((column, j) => (
+                  <td key={column.key} className={`px-4 py-3 text-duo-ink ${j === 0 ? 'font-semibold' : ''}`}>
+                    {cellValue(column.getValue ? column.getValue(row) : row[column.key])}
                   </td>
                 ))}
               </tr>
@@ -158,38 +120,63 @@ function renderTable(data: Record<string, unknown>): React.ReactNode {
           </tbody>
         </table>
       </div>
-    );
+    </div>
+  );
+}
+
+function objectArrayTable(rows: Array<Record<string, unknown>>, preferredColumns?: SummaryColumn[]) {
+  if (rows.length === 0) return null;
+  if (preferredColumns?.length) return <TableShell columns={preferredColumns} rows={rows} />;
+
+  const keys = Array.from(new Set(rows.flatMap((row) => Object.keys(row)))).slice(0, 8);
+  if (keys.length === 0) return null;
+  return (
+    <TableShell
+      columns={keys.map((key, index) => ({
+        key,
+        label: prettyKey(key),
+        className: index === 0 ? 'min-w-[220px]' : '',
+      }))}
+      rows={rows}
+    />
+  );
+}
+
+function renderTable(data: Record<string, unknown>): React.ReactNode {
+  if (Array.isArray(data.sections) && data.sections.length > 0) {
+    return objectArrayTable(data.sections as Array<Record<string, unknown>>, [
+      { key: 'topic', label: 'Topic', getValue: (row) => firstDisplayValue(row, ['heading', 'title', 'topic']) },
+      { key: 'bullets', label: 'Key Points', getValue: (row) => firstDisplayValue(row, ['bullets', 'points', 'summary']) },
+    ]);
   }
 
-  // Generic: detect any top-level key whose value is an array of objects
-  for (const [key, val] of Object.entries(data)) {
-    if (Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === 'object') {
-      const rows = val as Array<Record<string, unknown>>;
-      const subCols = Object.keys(rows[0]).map((k) => ({ key: k, label: prettyKey(k) }));
+  if (Array.isArray(data.topics) && data.topics.length > 0) {
+    const rows = data.topics as Array<Record<string, unknown>>;
+    const sample = rows[0] ?? {};
+    const columns: SummaryColumn[] = [];
+
+    if ('title' in sample || 'heading' in sample || 'topic' in sample) {
+      columns.push({ key: 'title', label: 'Topic', getValue: (row) => firstDisplayValue(row, ['title', 'heading', 'topic']) });
+    }
+    if ('why_it_matters' in sample) columns.push({ key: 'why_it_matters', label: 'Why It Matters' });
+    if ('bullets' in sample || 'points' in sample) {
+      columns.push({ key: 'bullets', label: 'Key Points', getValue: (row) => firstDisplayValue(row, ['bullets', 'points']) });
+    }
+    if ('tags' in sample) columns.push({ key: 'tags', label: 'Tags' });
+
+    const known = new Set(columns.map((column) => column.key));
+    for (const key of Object.keys(sample)) {
+      if (!known.has(key)) columns.push({ key, label: prettyKey(key) });
+    }
+    return objectArrayTable(rows, columns.slice(0, 8));
+  }
+
+  for (const [key, value] of Object.entries(data)) {
+    if (Array.isArray(value) && value.length > 0 && value[0] && typeof value[0] === 'object') {
       return (
-        <div className="overflow-x-auto rounded-2xl border-2 border-duo-border">
-          <table className="w-full text-sm">
-            <thead className="bg-duo-soft/60">
-              <tr>
-                {subCols.map((col) => (
-                  <th key={col.key} className="px-4 py-2.5 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute">
-                    {col.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-duo-border">
-              {rows.map((row, i) => (
-                <tr key={i} className="hover:bg-duo-soft/30 transition-colors">
-                  {subCols.map((col, j) => (
-                    <td key={j} className={`px-4 py-2.5 align-top text-duo-ink ${j === 0 ? 'font-semibold' : ''}`}>
-                      {cellValue(row[col.key])}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-2">
+          <h3 className="text-sm font-extrabold text-duo-blueDark">{prettyKey(key)}</h3>
+          {objectArrayTable(value as Array<Record<string, unknown>>)}
         </div>
       );
     }
@@ -198,14 +185,32 @@ function renderTable(data: Record<string, unknown>): React.ReactNode {
   return null;
 }
 
-function SummaryBody({ summary }: { summary: NewsSummaryEntry }) {
-  if (summary.data && typeof summary.data === 'object' && !Array.isArray(summary.data)) {
-    const table = renderTable(summary.data as Record<string, unknown>);
-    if (table) return <>{table}</>;
-    return <RenderUnknown value={summary.data} />;
+function parseJsonSummary(raw: string): unknown | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (!fenced?.[1]) return null;
+    try {
+      return JSON.parse(fenced[1].trim());
+    } catch {
+      return null;
+    }
   }
-  if (summary.data && (typeof summary.data === 'object' || Array.isArray(summary.data))) {
-    return <RenderUnknown value={summary.data} />;
+}
+
+function SummaryBody({ summary }: { summary: NewsSummaryEntry }) {
+  const source = summary.data ?? parseJsonSummary(summary.raw);
+
+  if (Array.isArray(source) && source.length > 0 && source[0] && typeof source[0] === 'object') {
+    return objectArrayTable(source as Array<Record<string, unknown>>);
+  }
+  if (source && typeof source === 'object' && !Array.isArray(source)) {
+    const table = renderTable(source as Record<string, unknown>);
+    if (table) return <>{table}</>;
+    return <RenderUnknown value={source} />;
   }
   return (
     <pre className="overflow-x-auto whitespace-pre-wrap rounded-2xl border-2 border-duo-border bg-duo-soft/40 p-3 text-xs leading-relaxed text-duo-ink">
@@ -237,9 +242,10 @@ function StatusBanner({ result }: { result: NewsLoadResult }) {
 function isToday(dateStr: string): boolean {
   const now = new Date();
   const istMs = now.getTime() + 5.5 * 60 * 60 * 1000;
-  const y = new Date(istMs).getUTCFullYear();
-  const m = String(new Date(istMs).getUTCMonth() + 1).padStart(2, '0');
-  const d = String(new Date(istMs).getUTCDate()).padStart(2, '0');
+  const istDate = new Date(istMs);
+  const y = istDate.getUTCFullYear();
+  const m = String(istDate.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(istDate.getUTCDate()).padStart(2, '0');
   return dateStr === `${y}-${m}-${d}`;
 }
 
@@ -259,15 +265,14 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
   }, [initial]);
 
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+    function handleClickOutside(event: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
         setShowPicker(false);
       }
     }
-    if (showPicker) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
+    if (!showPicker) return;
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showPicker]);
 
   async function fetchInsights() {
@@ -336,7 +341,7 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
   }
 
   const today = isToday(result.date);
-  const dateLabel = today ? `Today's summary · ${result.date}` : `Summary · ${result.date}`;
+  const dateLabel = today ? `Today's summary - ${result.date}` : `Summary - ${result.date}`;
 
   return (
     <section className="space-y-4">
@@ -346,19 +351,24 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
             <button
               type="button"
               onClick={() => setShowPicker((s) => !s)}
-              className="flex items-center gap-1.5 text-lg font-extrabold text-duo-ink hover:text-duo-blueDark transition-colors cursor-pointer bg-transparent border-0 p-0"
+              className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-lg font-extrabold text-duo-ink transition-colors hover:text-duo-blueDark"
             >
               {dateLabel}
-              <svg className="w-4 h-4 text-duo-mute" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              <svg className="h-4 w-4 text-duo-mute" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
               </svg>
             </button>
             {showPicker && (
-              <div className="absolute z-20 top-full left-0 mt-2 rounded-2xl border-2 border-duo-border bg-white p-3 shadow-lg">
+              <div className="absolute left-0 top-full z-20 mt-2 rounded-2xl border-2 border-duo-border bg-white p-3 shadow-lg">
                 <input
                   type="date"
                   value={result.date}
-                  onChange={(e) => handleDateChange(e.target.value)}
+                  onChange={(event) => handleDateChange(event.target.value)}
                   className="rounded-xl border-2 border-duo-border bg-white px-3 py-2 text-sm font-semibold text-duo-ink focus:border-duo-blue focus:outline-none"
                   autoFocus
                 />
@@ -378,7 +388,7 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
             <button
               type="button"
               onClick={() => setShowUrlInput((s) => !s)}
-              className="ml-2 text-[11px] text-duo-mute hover:text-duo-blueDark underline transition-colors"
+              className="ml-2 text-[11px] text-duo-mute underline transition-colors hover:text-duo-blueDark"
             >
               {showUrlInput ? 'hide' : 'paste URL'}
             </button>
@@ -407,10 +417,10 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
           <input
             type="url"
             value={manualUrl}
-            onChange={(e) => setManualUrl(e.target.value)}
+            onChange={(event) => setManualUrl(event.target.value)}
             placeholder="https://www.insightsonindia.com/2026/05/16/upsc-current-affairs-16-may-2026/"
             className="flex-1 rounded-2xl border-2 border-duo-border bg-white px-4 py-2.5 text-sm text-duo-ink placeholder:text-duo-mute focus:border-duo-blue focus:outline-none"
-            onKeyDown={(e) => e.key === 'Enter' && fetchFromUrl()}
+            onKeyDown={(event) => event.key === 'Enter' && fetchFromUrl()}
           />
           <button
             type="button"
