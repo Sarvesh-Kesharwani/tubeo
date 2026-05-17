@@ -98,7 +98,6 @@ export async function fetchInsightsOnIndiaHtml(date: string): Promise<FetchNewsH
   }
 
   const html = await res.text();
-  // Some hosts return a soft-404 with 200. Detect a common pattern.
   if (/Page not found/i.test(html.slice(0, 4000)) && !/upsc-current-affairs/i.test(html.slice(0, 4000))) {
     return { status: 'missing', url, httpStatus: 200 };
   }
@@ -108,17 +107,12 @@ export async function fetchInsightsOnIndiaHtml(date: string): Promise<FetchNewsH
 
 /**
  * Strips InsightsOnIndia HTML down to the article body to keep DeepSeek token usage bounded.
- * Falls back to a slice of the raw HTML if no obvious article container is found.
+ * Tries multiple strategies to locate the main article container, falling back to a body slice.
  */
 export function extractInsightsArticleText(html: string, maxChars = 60_000): string {
   if (!html) return '';
 
-  // Try to locate the main article container.
-  const articleMatch =
-    html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ??
-    html.match(/<div[^>]*class="[^"]*(?:entry-content|td-post-content|post-content)[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/(?:section|div|article|main)>/i);
-
-  const fragment = articleMatch ? articleMatch[1] : html;
+  const fragment = extractArticleFragment(html);
 
   const cleaned = fragment
     .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -139,4 +133,50 @@ export function extractInsightsArticleText(html: string, maxChars = 60_000): str
     .trim();
 
   return cleaned.length > maxChars ? `${cleaned.slice(0, maxChars)}\n\n…[truncated]` : cleaned;
+}
+
+function extractArticleFragment(html: string): string {
+  // Strategy 1: <article> tag — WordPress standard
+  const article = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
+  if (article?.[1] && article[1].length > 800) return article[1];
+
+  // Strategy 2: Content divs (WordPress themes: td-composer, Newspaper, default WP)
+  const contentClasses = [
+    'td-post-content',
+    'tdb_single_content',
+    'entry-content',
+    'post-content',
+    'the-content',
+    'content-area',
+  ];
+  for (const cls of contentClasses) {
+    const div = html.match(new RegExp(
+      `<div[^>]*class="[^"]*${cls}[^"]*"[^>]*>([\\s\\S]*?)<\\/div>\\s*<\\/(?:section|div|article|main)>`,
+      'i',
+    ));
+    if (div?.[1] && div[1].length > 800) return div[1];
+  }
+
+  // Strategy 3: Looser closing — capture until next <footer>, <aside>, </article>, or end of body
+  for (const cls of contentClasses) {
+    const div = html.match(new RegExp(
+      `<div[^>]*class="[^"]*${cls}[^"]*"[^>]*>([\\s\\S]*?)(?:<footer|<aside|<\\/article|<\\/body|$)`,
+      'i',
+    ));
+    if (div?.[1] && div[1].length > 800) return div[1];
+  }
+
+  // Strategy 4: Grab body content between header/nav and footer
+  const body = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  const bodyText = body?.[1] ?? html;
+  const betweenHeaderFooter = bodyText.match(
+    /(?:<\/header>|<\/nav>)([\s\S]*?)(?:<footer|<\/body>|$)/i,
+  );
+  if (betweenHeaderFooter?.[1] && betweenHeaderFooter[1].length > 800) return betweenHeaderFooter[1];
+
+  // Strategy 5: Crude fallback — skip first 2000 chars (head, nav, sidebar) and take the rest
+  const tail = bodyText.slice(Math.min(2000, bodyText.length));
+  if (tail.length > 800) return tail;
+
+  return html;
 }

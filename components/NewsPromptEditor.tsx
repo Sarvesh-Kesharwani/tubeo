@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const STORAGE_KEY = 'tubeo_news_prompt_v1';
 
@@ -38,11 +39,14 @@ export function NewsPromptEditor({
   initialPrompt: string;
   initialUpdatedAt: string | null;
 }) {
+  const router = useRouter();
   const [prompt, setPrompt] = useState(initialPrompt);
   const [savedPrompt, setSavedPrompt] = useState(initialPrompt);
   const [updatedAt, setUpdatedAt] = useState<string | null>(initialUpdatedAt);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   // Hydrate from localStorage if it's newer than the server-rendered prompt.
   useEffect(() => {
@@ -55,7 +59,7 @@ export function NewsPromptEditor({
     }
   }, [initialPrompt, initialUpdatedAt]);
 
-  async function handleSave() {
+  async function savePrompt(): Promise<boolean> {
     setStatus('saving');
     setError(null);
     try {
@@ -77,10 +81,44 @@ export function NewsPromptEditor({
       setUpdatedAt(persisted.updatedAt);
       setStatus('saved');
       setTimeout(() => setStatus((s) => (s === 'saved' ? 'idle' : s)), 2500);
+      return true;
     } catch (err) {
       setStatus('error');
       setError((err as Error).message);
+      return false;
     }
+  }
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setGenerateError(null);
+
+    // Auto-save prompt if dirty
+    if (prompt !== savedPrompt) {
+      const saved = await savePrompt();
+      if (!saved) {
+        setGenerating(false);
+        setGenerateError('Failed to save prompt before generating. Fix the error and try again.');
+        return;
+      }
+    }
+
+    try {
+      const res = await fetch('/api/news/summary', { method: 'POST' });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `Generate failed (${res.status})`);
+      }
+      router.refresh();
+    } catch (err) {
+      setGenerateError((err as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleSave() {
+    await savePrompt();
   }
 
   const dirty = prompt !== savedPrompt;
@@ -145,8 +183,22 @@ export function NewsPromptEditor({
           >
             {status === 'saving' ? 'Saving…' : 'Save prompt'}
           </button>
+          <button
+            type="button"
+            className="btn-duo-green disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleGenerate}
+            disabled={generating || prompt.length > 8000 || prompt.trim().length === 0}
+          >
+            {generating ? 'Generating…' : 'Generate Summary'}
+          </button>
         </div>
       </div>
+
+      {generateError && (
+        <div className="rounded-chonk border-2 border-duo-red bg-white px-4 py-3 text-sm font-semibold text-duo-red">
+          {generateError}
+        </div>
+      )}
     </section>
   );
 }

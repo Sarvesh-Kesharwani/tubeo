@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { NewsLoadResult } from '@/lib/news-service';
 import type { NewsSummaryEntry } from '@/lib/supabase-news';
 
@@ -98,6 +98,11 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
   const [result, setResult] = useState<NewsLoadResult>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setResult(initial);
+    setError(null);
+  }, [initial]);
 
   async function regenerate() {
     setBusy(true);
