@@ -24,6 +24,7 @@ create table if not exists public.tubeo_news_state (
 create or replace function public.set_tubeo_news_state_updated_at()
 returns trigger
 language plpgsql
+set search_path = public, pg_temp
 as $$
 begin
   new.updated_at = now();
@@ -68,6 +69,8 @@ create table if not exists tubeo_private.news_access_tokens (
   token text not null,
   created_at timestamptz not null default now()
 );
+
+alter table tubeo_private.news_access_tokens enable row level security;
 
 insert into tubeo_private.news_access_tokens (id, token)
 values (
