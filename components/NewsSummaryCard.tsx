@@ -110,6 +110,8 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [manualUrl, setManualUrl] = useState('');
 
   useEffect(() => {
     setResult(initial);
@@ -148,6 +150,37 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
         error: data.error,
         regenerated: data.regenerated,
       });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fetchFromUrl() {
+    const url = manualUrl.trim();
+    if (!url) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/news/summary?url=${encodeURIComponent(url)}`, {
+        method: 'POST',
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string } & NewsLoadResult;
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `Fetch failed (${res.status})`);
+      }
+      setResult({
+        date: data.date,
+        sourceUrl: data.sourceUrl,
+        status: data.status,
+        summary: data.summary,
+        rawFetchedAt: data.rawFetchedAt,
+        error: data.error,
+        regenerated: data.regenerated,
+      });
+      setShowUrlInput(false);
+      setManualUrl('');
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -202,6 +235,13 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
             >
               insightsonindia.com
             </a>
+            <button
+              type="button"
+              onClick={() => setShowUrlInput((s) => !s)}
+              className="ml-2 text-[11px] text-duo-mute hover:text-duo-blueDark underline transition-colors"
+            >
+              {showUrlInput ? 'hide' : 'paste URL'}
+            </button>
             {result.summary && (
               <span className="ml-2">
                 {' '}
@@ -221,6 +261,27 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
           {busy ? 'Fetching...' : today ? "Fetch today's Insights" : 'Fetch Insights'}
         </button>
       </header>
+
+      {showUrlInput && (
+        <div className="flex gap-2">
+          <input
+            type="url"
+            value={manualUrl}
+            onChange={(e) => setManualUrl(e.target.value)}
+            placeholder="https://www.insightsonindia.com/2026/05/16/upsc-current-affairs-16-may-2026/"
+            className="flex-1 rounded-2xl border-2 border-duo-border bg-white px-4 py-2.5 text-sm text-duo-ink placeholder:text-duo-mute focus:border-duo-blue focus:outline-none"
+            onKeyDown={(e) => e.key === 'Enter' && fetchFromUrl()}
+          />
+          <button
+            type="button"
+            className="btn-duo-green disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={fetchFromUrl}
+            disabled={busy || !manualUrl.trim()}
+          >
+            {busy ? '...' : 'Fetch from URL'}
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-chonk border-2 border-duo-red bg-white px-4 py-3 text-sm font-semibold text-duo-red">

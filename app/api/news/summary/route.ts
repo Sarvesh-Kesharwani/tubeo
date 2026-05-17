@@ -1,4 +1,4 @@
-import { loadNewsForUser, readNewsForUser } from '@/lib/news-service';
+import { loadNewsForUser, loadNewsFromUrl, readNewsForUser } from '@/lib/news-service';
 import { parseIstDateString } from '@/lib/news-source';
 import { getSession } from '@/lib/session';
 import { getTubeoUserIdentity } from '@/lib/supabase-sync';
@@ -16,6 +16,18 @@ function dateParam(req: Request): string | undefined {
   return parseIstDateString(value) ? value : undefined;
 }
 
+function urlParam(req: Request): string | undefined {
+  const value = new URL(req.url).searchParams.get('url');
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined;
+    return parsed.href;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function GET(req: Request) {
   const session = await getSession();
   const identity = getTubeoUserIdentity(session);
@@ -29,6 +41,12 @@ export async function POST(req: Request) {
   const session = await getSession();
   const identity = getTubeoUserIdentity(session);
   if (!identity) return fail('Not authenticated', 401);
+
+  const manualUrl = urlParam(req);
+  if (manualUrl) {
+    const result = await loadNewsFromUrl(identity, manualUrl);
+    return Response.json({ ok: true, ...result });
+  }
 
   const result = await loadNewsForUser(identity, { date: dateParam(req), forceRegenerate: true });
   return Response.json({ ok: true, ...result });

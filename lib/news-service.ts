@@ -236,3 +236,89 @@ export async function readNewsForUser(
 
   return { date, sourceUrl, status: 'ready', summary: null, regenerated: false };
 }
+
+/**
+ * Fetch, extract, and summarize an InsightsOnIndia article from a manual URL.
+ * Bypasses date-based URL construction and Supabase raw HTML caching.
+ */
+export async function loadNewsFromUrl(
+  identity: TubeoUserIdentity,
+  rawUrl: string,
+): Promise<NewsLoadResult> {
+  const sourceUrl = rawUrl.trim();
+
+  if (!isSupabaseNewsConfigured()) {
+    return { date: '', sourceUrl, status: 'no-config', summary: null, regenerated: false };
+  }
+
+  const state = await readNewsState(identity);
+  const prompt = state?.prompt ?? '';
+  if (!prompt.trim()) {
+    return { date: '', sourceUrl, status: 'no-prompt', summary: null, regenerated: false };
+  }
+
+  // Fetch the HTML directly
+  let html: string;
+  try {
+    const res = await fetch(sourceUrl, {
+      headers: {
+        'User-Agent':
+          'TubeoNewsBot/1.0 (+https://github.com/Sarvesh-Kesharwani/tubeo) Mozilla/5.0',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    });
+    if (!res.ok) {
+      return { date: '', sourceUrl, status: 'fetch-failed', summary: null, regenerated: false, error: `HTTP ${res.status}` };
+    }
+    html = await res.text();
+  } catch (error) {
+    return { date: '', sourceUrl, status: 'fetch-failed', summary: null, regenerated: false, error: (error as Error).message };
+  }
+
+  const articleText = extractInsightsArticleText(html);
+  if (articleText.length < 500) {
+    return { date: '', sourceUrl, status: 'no-html-yet', summary: null, regenerated: false };
+  }
+
+  // Derive date from URL if it matches the InsightsOnIndia pattern, otherwise use today
+  const urlDateMatch = sourceUrl.match(/(\d{4})\/(\d{2})\/(\d{2})/);
+  const date = urlDateMatch ? `${urlDateMatch[1]}-${urlDateMatch[2]}-${urlDateMatch[3]}` : istDateString();
+
+  let summaryResult: Awaited<ReturnType<typeof summarizeInsightsOnIndiaPage>>;
+  try {
+    summaryResult = await summarizeInsightsOnIndiaPage({
+      date,
+      sourceUrl,
+      articleText,
+      userPrompt: prompt,
+    });
+  } catch (error) {
+    return {
+      date,
+      sourceUrl,
+      status: 'deepseek-failed',
+      summary: null,
+      error: error instanceof DeepSeekRequestError ? error.message : (error as Error).message,
+      regenerated: false,
+    };
+  }
+
+  const promptH = promptHash(prompt);
+  const entry: NewsSummaryEntry = {
+    date,
+    sourceUrl,
+    data: summaryResult.data,
+    raw: summaryResult.raw,
+    usedUserPrompt: summaryResult.usedUserPrompt,
+    promptHash: promptH,
+    generatedAt: new Date().toISOString(),
+  };
+
+  try {
+    await writeNewsSummary(identity, entry);
+  } catch {
+    // Best-effort persist
+  }
+
+  return { date, sourceUrl, status: 'ok', summary: entry, regenerated: true };
+}
