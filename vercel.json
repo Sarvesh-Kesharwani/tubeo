@@ -3,6 +3,18 @@
     {
       "path": "/api/cron/reset-api-usage",
       "schedule": "30 18 * * *"
+    },
+    {
+      "path": "/api/cron/fetch-news",
+      "schedule": "30 18 * * *"
+    },
+    {
+      "path": "/api/cron/fetch-news",
+      "schedule": "30 12 * * *"
+    },
+    {
+      "path": "/api/cron/fetch-news",
+      "schedule": "30 15 * * *"
     }
   ]
 }

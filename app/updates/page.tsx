@@ -87,8 +87,20 @@ async function UpdatesFeed({
   }
 
   const now = getRequestTime();
-  const channels = await getChannels(selectedIds);
-  const groups = await Promise.all(
+  let channels;
+  try {
+    channels = await getChannels(selectedIds);
+  } catch (error) {
+    return (
+      <EmptyState
+        emoji="!"
+        title="Couldn't load updates"
+        description={(error as Error).message}
+      />
+    );
+  }
+
+  const settled = await Promise.allSettled(
     channels.map(async (channel) => ({
       channel,
       videos: (await getLatestVideosForChannel(channel, range, media, range === 'all' ? 50 : 12, now)).filter(
@@ -97,8 +109,32 @@ async function UpdatesFeed({
     })),
   );
 
+  const groups = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+  const failureCount = settled.length - groups.length;
+  const firstFailure = settled.find((result) => result.status === 'rejected') as
+    | PromiseRejectedResult
+    | undefined;
+
+  if (groups.length === 0) {
+    return (
+      <EmptyState
+        emoji="!"
+        title="Couldn't load updates"
+        description={
+          (firstFailure?.reason as Error | undefined)?.message ??
+          'YouTube returned errors for every channel. The daily API quota may be exhausted.'
+        }
+      />
+    );
+  }
+
   return (
     <div className="space-y-8">
+      {failureCount > 0 && (
+        <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/50 px-4 py-3 text-sm font-semibold text-duo-mute">
+          {`Couldn't fetch ${failureCount} of ${settled.length} channel${settled.length === 1 ? '' : 's'} — showing what we could load.`}
+        </div>
+      )}
       {groups.map((group) => (
         <ChannelRow key={group.channel.id} data={group} now={now} />
       ))}

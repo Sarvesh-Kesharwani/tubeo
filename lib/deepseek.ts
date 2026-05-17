@@ -368,3 +368,66 @@ export async function summarizeTranscriptForCitizen({
 
   return bullets;
 }
+
+export interface InsightsNewsSummaryInput {
+  date: string; // 'YYYY-MM-DD' (IST)
+  sourceUrl: string;
+  articleText: string;
+  userPrompt: string;
+}
+
+export interface InsightsNewsSummaryResult {
+  /** Whatever JSON shape DeepSeek returns. The user's prompt dictates the structure. */
+  data: unknown;
+  /** Plain-text fallback rendered when `data` is missing/unrenderable. */
+  raw: string;
+  /** Was a user prompt actually applied (versus the built-in default). */
+  usedUserPrompt: boolean;
+}
+
+const DEFAULT_INSIGHTS_NEWS_USER_PROMPT_HINT =
+  'Return JSON in the shape {"sections":[{"heading":"...","bullets":["..."]}]}. ' +
+  'Each section covers one news/topic from the page. Keep bullets concise.';
+
+export async function summarizeInsightsOnIndiaPage({
+  date,
+  sourceUrl,
+  articleText,
+  userPrompt,
+}: InsightsNewsSummaryInput): Promise<InsightsNewsSummaryResult> {
+  const cleanedArticle = articleText.replace(/\s+\n/g, '\n').trim();
+  if (!cleanedArticle) {
+    throw new DeepSeekRequestError('Article text is empty.', 400);
+  }
+
+  const trimmedUserPrompt = userPrompt.trim();
+  const usedUserPrompt = trimmedUserPrompt.length > 0;
+
+  const system =
+    'You summarize the daily InsightsOnIndia UPSC current-affairs page. ' +
+    'Follow the user-provided output instructions exactly when given; otherwise use the default JSON shape. ' +
+    'Return strict JSON only. No markdown, no commentary, no preamble. ' +
+    (usedUserPrompt
+      ? `User output instructions: ${trimmedUserPrompt}`
+      : `Default: ${DEFAULT_INSIGHTS_NEWS_USER_PROMPT_HINT}`);
+
+  const user = JSON.stringify({
+    date,
+    sourceUrl,
+    article: cleanedArticle.slice(0, 60_000),
+  });
+
+  const content = await runDeepSeekChat({
+    system,
+    user,
+    maxTokens: 3000,
+    operation: `Insights news summary: ${date}`,
+  });
+
+  try {
+    const parsed = parseJsonPayload(content);
+    return { data: parsed, raw: content, usedUserPrompt };
+  } catch {
+    return { data: null, raw: content, usedUserPrompt };
+  }
+}

@@ -17,7 +17,49 @@ interface CaptionTrack {
   kind?: string;
 }
 
+interface PlayerResponse {
+  playabilityStatus?: { status?: string; reason?: string };
+  captions?: {
+    playerCaptionsTracklistRenderer?: {
+      captionTracks?: CaptionTrack[];
+    };
+  };
+}
+
 const WATCH_URL = 'https://www.youtube.com/watch';
+const INNERTUBE_URL = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+
+// Each context here corresponds to a real YouTube client. The WEB client works for
+// most videos; the ANDROID and IOS clients unlock age-restricted ones. We try them
+// in order until one returns a captionTracks list.
+const INNERTUBE_CONTEXTS: Array<{
+  name: 'WEB' | 'ANDROID' | 'IOS';
+  clientVersion: string;
+  userAgent: string;
+  clientNameId: string;
+  extraBody?: Record<string, unknown>;
+}> = [
+  {
+    name: 'WEB',
+    clientVersion: '2.20240821.00.00',
+    clientNameId: '1',
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  },
+  {
+    name: 'ANDROID',
+    clientVersion: '19.30.36',
+    clientNameId: '3',
+    userAgent: 'com.google.android.youtube/19.30.36 (Linux; U; Android 14) gzip',
+    extraBody: { params: 'CgIQBg==' },
+  },
+  {
+    name: 'IOS',
+    clientVersion: '19.29.1',
+    clientNameId: '5',
+    userAgent: 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)',
+  },
+];
 
 function assertVideoId(id: string): string {
   const value = id.trim();
@@ -37,50 +79,59 @@ function decodeEntity(value: string): string {
     .replace(/&gt;/g, '>');
 }
 
-function extractJsonArrayAfter(html: string, marker: string): unknown[] {
+/**
+ * Finds the first balanced JSON value (object or array) starting at or after `marker`.
+ * Handles strings with escaped quotes so that braces inside strings don't confuse the depth counter.
+ */
+function extractBalancedJsonAfter(html: string, marker: string): unknown | null {
   const markerIndex = html.indexOf(marker);
-  if (markerIndex === -1) return [];
+  if (markerIndex === -1) return null;
 
-  const start = html.indexOf('[', markerIndex);
-  if (start === -1) return [];
+  let start = -1;
+  for (let i = markerIndex + marker.length; i < html.length; i += 1) {
+    const c = html[i];
+    if (c === '{' || c === '[') {
+      start = i;
+      break;
+    }
+    if (c && !/\s/.test(c) && c !== ':') break;
+  }
+  if (start === -1) return null;
 
+  const open = html[start];
+  const close = open === '{' ? '}' : ']';
   let depth = 0;
   let inString = false;
   let escaped = false;
 
-  for (let index = start; index < html.length; index += 1) {
-    const char = html[index];
+  for (let i = start; i < html.length; i += 1) {
+    const c = html[i];
 
     if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
       continue;
     }
 
-    if (char === '"') {
+    if (c === '"') {
       inString = true;
       continue;
     }
-    if (char === '[') depth += 1;
-    if (char === ']') depth -= 1;
-
-    if (depth === 0) {
-      const raw = html.slice(start, index + 1);
-      try {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
+    if (c === open) depth += 1;
+    if (c === close) {
+      depth -= 1;
+      if (depth === 0) {
+        const raw = html.slice(start, i + 1);
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
       }
     }
   }
-
-  return [];
+  return null;
 }
 
 function readTrackName(track: CaptionTrack): string {
@@ -100,30 +151,141 @@ function scoreTrack(track: CaptionTrack): number {
 }
 
 function chooseTrack(tracks: CaptionTrack[]): CaptionTrack | null {
-  return tracks
-    .filter((track) => track.baseUrl)
-    .sort((a, b) => scoreTrack(b) - scoreTrack(a))[0] ?? null;
+  return (
+    tracks
+      .filter((track) => typeof track.baseUrl === 'string' && track.baseUrl.length > 0)
+      .sort((a, b) => scoreTrack(b) - scoreTrack(a))[0] ?? null
+  );
+}
+
+function tracksFromPlayerResponse(player: PlayerResponse | null | undefined): CaptionTrack[] {
+  return player?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+}
+
+async function getCaptionTracksViaInnerTube(videoId: string): Promise<{
+  tracks: CaptionTrack[];
+  playabilityStatus?: string;
+  playabilityReason?: string;
+}> {
+  let playabilityStatus: string | undefined;
+  let playabilityReason: string | undefined;
+
+  for (const ctx of INNERTUBE_CONTEXTS) {
+    let res: Response;
+    try {
+      res = await fetch(INNERTUBE_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': ctx.userAgent,
+          'X-YouTube-Client-Name': ctx.clientNameId,
+          'X-YouTube-Client-Version': ctx.clientVersion,
+          'Accept-Language': 'en-US,en;q=0.9',
+          Origin: 'https://www.youtube.com',
+        },
+        body: JSON.stringify({
+          videoId,
+          context: {
+            client: {
+              clientName: ctx.name,
+              clientVersion: ctx.clientVersion,
+              hl: 'en',
+              gl: 'US',
+              ...(ctx.name === 'ANDROID'
+                ? { androidSdkVersion: 34, osName: 'Android', osVersion: '14' }
+                : {}),
+              ...(ctx.name === 'IOS'
+                ? { deviceMake: 'Apple', deviceModel: 'iPhone16,2', osName: 'iOS', osVersion: '17.5.1.21F90' }
+                : {}),
+            },
+          },
+          ...ctx.extraBody,
+        }),
+        next: { revalidate: 3600 },
+      });
+    } catch {
+      continue;
+    }
+
+    if (!res.ok) continue;
+
+    let player: PlayerResponse;
+    try {
+      player = (await res.json()) as PlayerResponse;
+    } catch {
+      continue;
+    }
+
+    playabilityStatus = player.playabilityStatus?.status ?? playabilityStatus;
+    playabilityReason = player.playabilityStatus?.reason ?? playabilityReason;
+
+    const tracks = tracksFromPlayerResponse(player);
+    if (tracks.length > 0) {
+      return { tracks, playabilityStatus, playabilityReason };
+    }
+
+    // If the WEB client says LOGIN_REQUIRED / AGE_VERIFICATION, the next pass (ANDROID/IOS) often unlocks.
+    // For OK status with no tracks we still try the next client because some videos selectively
+    // disable captions on WEB but expose them on mobile clients.
+  }
+
+  return { tracks: [], playabilityStatus, playabilityReason };
+}
+
+async function getCaptionTracksViaWatchPage(videoId: string): Promise<CaptionTrack[]> {
+  const url = new URL(WATCH_URL);
+  url.searchParams.set('v', videoId);
+  url.searchParams.set('hl', 'en');
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        // Bypass the EU consent interstitial that hides ytInitialPlayerResponse.
+        Cookie: 'CONSENT=YES+cb.20210328-17-p0.en+FX+000; SOCS=CAESEwgDEgk0NDc4MDgyMjAaAmVuIAEaBgiA_LyaBg',
+      },
+      next: { revalidate: 3600 },
+    });
+  } catch {
+    return [];
+  }
+
+  if (!response.ok) return [];
+
+  const html = await response.text();
+
+  const player = extractBalancedJsonAfter(html, 'ytInitialPlayerResponse') as PlayerResponse | null;
+  const tracks = tracksFromPlayerResponse(player);
+  if (tracks.length > 0) return tracks.filter((t) => typeof t.baseUrl === 'string');
+
+  // Last-resort: a stripped HTML may still contain the captionTracks array directly.
+  const direct = extractBalancedJsonAfter(html, '"captionTracks":') as CaptionTrack[] | null;
+  if (Array.isArray(direct)) {
+    return direct.filter((t) => typeof t.baseUrl === 'string');
+  }
+
+  return [];
 }
 
 async function getCaptionTracks(videoId: string): Promise<CaptionTrack[]> {
-  const url = new URL(WATCH_URL);
-  url.searchParams.set('v', videoId);
+  const innerTube = await getCaptionTracksViaInnerTube(videoId);
+  if (innerTube.tracks.length > 0) return innerTube.tracks;
 
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36',
-    },
-    next: { revalidate: 3600 },
-  });
+  // The "no captions yet but the video is playable" path: try the watch page as a fallback.
+  const fromHtml = await getCaptionTracksViaWatchPage(videoId);
+  if (fromHtml.length > 0) return fromHtml;
 
-  if (!response.ok) {
-    throw new TranscriptError('Could not load YouTube video page.', 502);
+  // Surface a clear, actionable error if YouTube told us the video itself is blocked.
+  const status = innerTube.playabilityStatus;
+  if (status && status !== 'OK') {
+    const reason = innerTube.playabilityReason || status;
+    throw new TranscriptError(`Video not playable: ${reason}`, 451);
   }
 
-  const html = await response.text();
-  const tracks = extractJsonArrayAfter(html, '"captionTracks":') as CaptionTrack[];
-  return tracks.filter((track) => typeof track.baseUrl === 'string');
+  return [];
 }
 
 function withTranscriptFormat(baseUrl: string, format: 'json3' | 'srv3'): string {
