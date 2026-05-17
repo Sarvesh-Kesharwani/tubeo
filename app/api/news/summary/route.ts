@@ -1,6 +1,7 @@
 import { loadNewsForUser, loadNewsFromUrl, readNewsForUser } from '@/lib/news-service';
 import { parseIstDateString } from '@/lib/news-source';
 import { getSession } from '@/lib/session';
+import { deleteNewsSummary } from '@/lib/supabase-news';
 import { getTubeoUserIdentity } from '@/lib/supabase-sync';
 
 export const dynamic = 'force-dynamic';
@@ -50,4 +51,21 @@ export async function POST(req: Request) {
 
   const result = await loadNewsForUser(identity, { date: dateParam(req), forceRegenerate: true });
   return Response.json({ ok: true, ...result });
+}
+
+export async function DELETE(req: Request) {
+  const session = await getSession();
+  const identity = getTubeoUserIdentity(session);
+  if (!identity) return fail('Not authenticated', 401);
+
+  const date = dateParam(req);
+  if (!date) return fail('Valid date is required');
+
+  try {
+    await deleteNewsSummary(identity, date);
+    const result = await readNewsForUser(identity, { date });
+    return Response.json({ ok: true, ...result });
+  } catch (error) {
+    return fail((error as Error).message, 502);
+  }
 }

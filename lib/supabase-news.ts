@@ -246,6 +246,24 @@ export async function writeNewsSummary(
   return writeNewsStateRow(identity, existing.prompt, nextSummaries);
 }
 
+export async function deleteNewsSummary(
+  identity: TubeoUserIdentity,
+  date: string,
+): Promise<NewsStatePayload> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error('Invalid news summary date.');
+  }
+
+  const existing = (await readNewsState(identity)) ?? {
+    prompt: '',
+    summaries: {},
+    updatedAt: new Date(0).toISOString(),
+  };
+  const nextSummaries = { ...existing.summaries };
+  delete nextSummaries[date];
+  return writeNewsStateRow(identity, existing.prompt, nextSummaries);
+}
+
 export async function readNewsRaw(date: string): Promise<NewsRawEntry | null> {
   const cfg = rawConfig();
   if (!cfg) return null;
