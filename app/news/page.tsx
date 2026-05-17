@@ -4,6 +4,7 @@ import { DurationFilter } from '@/components/DurationFilter';
 import { EmptyState } from '@/components/EmptyState';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { NewsPromptEditor } from '@/components/NewsPromptEditor';
+import { NewsHistory } from '@/components/NewsHistory';
 import { NewsSummaryCard } from '@/components/NewsSummaryCard';
 import { TimeFilter } from '@/components/TimeFilter';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
@@ -16,6 +17,7 @@ import { getSession } from '@/lib/session';
 import { normalizeSpaceName } from '@/lib/spaces';
 import { isSupabaseNewsConfigured, readNewsState } from '@/lib/supabase-news';
 import { getTubeoUserIdentity } from '@/lib/supabase-sync';
+import { istDateString } from '@/lib/news-source';
 import { parseRange } from '@/lib/time';
 import { getChannelGroupedFeedWithQuota } from '@/lib/youtube';
 import { getWhitelistedChannelPreferences } from '@/lib/whitelist';
@@ -25,9 +27,10 @@ const NEWS_SPACE = 'News';
 export default async function NewsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; media?: string; duration?: string }>;
+  searchParams: Promise<{ range?: string; media?: string; duration?: string; date?: string }>;
 }) {
   const sp = await searchParams;
+  const selectedDate = sp.date;
   const view = await getCookieViewPreferences();
   const range = parseRange(sp.range ?? view.channels.range);
   const media = parseMediaFilter(sp.media ?? view.channels.media);
@@ -45,13 +48,17 @@ export default async function NewsPage({
           </div>
         </div>
         <p className="text-sm text-duo-mute">
-          Today’s UPSC current-affairs digest from InsightsOnIndia plus videos from channels you’ve assigned to the
-          “{NEWS_SPACE}” space.
+          Today's UPSC current-affairs digest from InsightsOnIndia plus videos from channels you've assigned to the
+          "{NEWS_SPACE}" space.
         </p>
       </section>
 
       <Suspense fallback={<SummarySkeleton />}>
-        <NewsSummarySection />
+        <NewsSummarySection date={selectedDate} />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <NewsHistorySection date={selectedDate} />
       </Suspense>
 
       <section className="flex flex-col gap-3">
@@ -82,7 +89,7 @@ export default async function NewsPage({
   );
 }
 
-async function NewsSummarySection() {
+async function NewsSummarySection({ date }: { date?: string }) {
   const session = await getSession();
   const identity = getTubeoUserIdentity(session);
 
@@ -106,8 +113,16 @@ async function NewsSummarySection() {
     );
   }
 
-  const result = await readNewsForUser(identity);
+  const result = await readNewsForUser(identity, { date });
   return <NewsSummaryCard initial={result} />;
+}
+
+async function NewsHistorySection({ date }: { date?: string }) {
+  const session = await getSession();
+  const identity = getTubeoUserIdentity(session);
+  if (!identity || !isSupabaseNewsConfigured()) return null;
+  const activeDate = date ?? istDateString();
+  return <NewsHistory activeDate={activeDate} />;
 }
 
 async function NewsPromptSection() {
@@ -152,7 +167,7 @@ async function NewsVideos({
       <EmptyState
         emoji="🗂️"
         title={`No channels in the "${NEWS_SPACE}" space yet`}
-        description={`Open the Channels page and move your news channels into the "${NEWS_SPACE}" space (case-sensitive). They’ll show up here automatically.`}
+        description={`Open the Channels page and move your news channels into the "${NEWS_SPACE}" space (case-sensitive). They'll show up here automatically.`}
       />
     );
   }

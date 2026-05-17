@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { NewsLoadResult } from '@/lib/news-service';
 import type { NewsSummaryEntry } from '@/lib/supabase-news';
 
@@ -93,15 +94,39 @@ function StatusBanner({ result }: { result: NewsLoadResult }) {
   );
 }
 
+function isToday(dateStr: string): boolean {
+  const now = new Date();
+  const istMs = now.getTime() + 5.5 * 60 * 60 * 1000;
+  const y = new Date(istMs).getUTCFullYear();
+  const m = String(new Date(istMs).getUTCMonth() + 1).padStart(2, '0');
+  const d = String(new Date(istMs).getUTCDate()).padStart(2, '0');
+  return dateStr === `${y}-${m}-${d}`;
+}
+
 export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
+  const router = useRouter();
+  const pickerRef = useRef<HTMLDivElement>(null);
   const [result, setResult] = useState<NewsLoadResult>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
     setResult(initial);
     setError(null);
   }, [initial]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowPicker(false);
+      }
+    }
+    if (showPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showPicker]);
 
   async function fetchInsights() {
     setBusy(true);
@@ -130,11 +155,43 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
     }
   }
 
+  function handleDateChange(value: string) {
+    setShowPicker(false);
+    if (value && value !== result.date) {
+      router.push(`/news?date=${value}`);
+    }
+  }
+
+  const today = isToday(result.date);
+  const dateLabel = today ? `Today's summary · ${result.date}` : `Summary · ${result.date}`;
+
   return (
     <section className="space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-extrabold text-duo-ink">Daily summary - {result.date}</h2>
+          <div className="relative inline-block" ref={pickerRef}>
+            <button
+              type="button"
+              onClick={() => setShowPicker((s) => !s)}
+              className="flex items-center gap-1.5 text-lg font-extrabold text-duo-ink hover:text-duo-blueDark transition-colors cursor-pointer bg-transparent border-0 p-0"
+            >
+              {dateLabel}
+              <svg className="w-4 h-4 text-duo-mute" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </button>
+            {showPicker && (
+              <div className="absolute z-20 top-full left-0 mt-2 rounded-2xl border-2 border-duo-border bg-white p-3 shadow-lg">
+                <input
+                  type="date"
+                  value={result.date}
+                  onChange={(e) => handleDateChange(e.target.value)}
+                  className="rounded-xl border-2 border-duo-border bg-white px-3 py-2 text-sm font-semibold text-duo-ink focus:border-duo-blue focus:outline-none"
+                  autoFocus
+                />
+              </div>
+            )}
+          </div>
           <p className="text-xs text-duo-mute">
             Source:{' '}
             <a
@@ -161,7 +218,7 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
           onClick={fetchInsights}
           disabled={busy || result.status === 'no-config'}
         >
-          {busy ? 'Fetching...' : "Fetch today's Insights"}
+          {busy ? 'Fetching...' : today ? "Fetch today's Insights" : 'Fetch Insights'}
         </button>
       </header>
 
