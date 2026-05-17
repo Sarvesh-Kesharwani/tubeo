@@ -53,12 +53,12 @@ export default async function NewsPage({
         </p>
       </section>
 
-      <Suspense fallback={<SummarySkeleton />}>
-        <NewsSummarySection date={selectedDate} />
-      </Suspense>
-
       <Suspense fallback={null}>
         <NewsHistorySection date={selectedDate} />
+      </Suspense>
+
+      <Suspense fallback={<SummarySkeleton />}>
+        <NewsSummarySection date={selectedDate} />
       </Suspense>
 
       <section className="flex flex-col gap-3">

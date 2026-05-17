@@ -62,6 +62,8 @@ export function NewsHistory({ activeDate }: { activeDate: string }) {
 
   if (entries.length === 0) return null;
 
+  const activeEntry = entries.find((entry) => entry.date === activeDate);
+
   function navigate(date: string) {
     router.push(`/news?date=${date}`);
   }
@@ -92,9 +94,44 @@ export function NewsHistory({ activeDate }: { activeDate: string }) {
 
   return (
     <section className="space-y-4">
-      <h3 className="text-sm font-extrabold uppercase tracking-wide text-duo-mute">
-        Previous summaries
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-extrabold uppercase tracking-wide text-duo-mute">
+          Previous summaries
+        </h3>
+
+        {activeEntry && (
+          <div className="flex items-center gap-2">
+            {confirmDate === activeDate ? (
+              <>
+                <button
+                  type="button"
+                  className="chip bg-duo-red text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void deleteSummary(activeDate)}
+                  disabled={deletingDate === activeDate}
+                >
+                  {deletingDate === activeDate ? 'Deleting...' : 'Confirm delete'}
+                </button>
+                <button
+                  type="button"
+                  className="chip disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => setConfirmDate(null)}
+                  disabled={deletingDate === activeDate}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="chip text-duo-red hover:border-duo-red hover:bg-duo-red hover:text-white"
+                onClick={() => setConfirmDate(activeDate)}
+              >
+                Delete selected
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {error && (
         <div className="rounded-chonk border-2 border-duo-red bg-white px-4 py-3 text-sm font-semibold text-duo-red">
@@ -114,81 +151,6 @@ export function NewsHistory({ activeDate }: { activeDate: string }) {
           >
             {formatDate(entry.date)}
           </button>
-        ))}
-      </div>
-
-      <div className="space-y-2">
-        {entries.map((entry) => (
-          <div
-            key={entry.date}
-            className={`card p-3 text-left transition-colors sm:p-4 ${
-              entry.date === activeDate ? 'border-duo-blue bg-duo-blue/5' : 'hover:bg-duo-soft/60'
-            }`}
-          >
-            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => navigate(entry.date)}
-                className="min-w-0 flex-1 text-left"
-              >
-                <span className="text-sm font-extrabold text-duo-ink">
-                  {formatDate(entry.date)}
-                </span>
-                <span className="ml-2 text-[10px] text-duo-mute">
-                  {new Date(entry.generatedAt).toLocaleDateString()}
-                </span>
-              </button>
-
-              {confirmDate === entry.date ? (
-                <span className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    className="chip bg-duo-red text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => void deleteSummary(entry.date)}
-                    disabled={deletingDate === entry.date}
-                  >
-                    {deletingDate === entry.date ? 'Deleting...' : 'Confirm'}
-                  </button>
-                  <button
-                    type="button"
-                    className="chip disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => setConfirmDate(null)}
-                    disabled={deletingDate === entry.date}
-                  >
-                    Cancel
-                  </button>
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="chip shrink-0 text-duo-red hover:border-duo-red hover:bg-duo-red hover:text-white"
-                  onClick={() => setConfirmDate(entry.date)}
-                >
-                  Delete
-                </button>
-              )}
-            </div>
-
-            <button type="button" className="block w-full text-left" onClick={() => navigate(entry.date)}>
-              {entry.headings.length > 0 ? (
-                <div className="flex flex-wrap gap-1">
-                  {entry.headings.map((heading, i) => (
-                    <span
-                      key={i}
-                      className="max-w-[200px] truncate text-[11px] leading-relaxed text-duo-mute"
-                    >
-                      {heading}
-                      {i < entry.headings.length - 1 ? ' - ' : ''}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] italic text-duo-mute">
-                  Summary available - click to view
-                </p>
-              )}
-            </button>
-          </div>
         ))}
       </div>
     </section>
