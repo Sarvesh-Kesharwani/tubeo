@@ -61,6 +61,36 @@ export function insightsOnIndiaUrl(date: string | { y: number; m: number; d: num
   return `https://www.insightsonindia.com/${yyyy}/${mm}/${dd}/upsc-current-affairs-${d}-${month}-${y}/`;
 }
 
+const LANDING_PAGE_URL = 'https://www.insightsonindia.com/current-affairs-upsc/';
+
+/**
+ * Fetches the InsightsOnIndia current-affairs landing page and extracts the URL
+ * of the latest available daily article. Falls back to the date-based URL if
+ * the landing page is unreachable or no links are found.
+ */
+export async function fetchLatestInsightsUrl(): Promise<string> {
+  try {
+    const res = await fetch(LANDING_PAGE_URL, {
+      headers: {
+        'User-Agent':
+          'TubeoNewsBot/1.0 (+https://github.com/Sarvesh-Kesharwani/tubeo) Mozilla/5.0',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = await res.text();
+
+    const pattern = /https?:\/\/www\.insightsonindia\.com\/\d{4}\/\d{2}\/\d{2}\/upsc-current-affairs-\d+-[a-z]+-\d{4}\//gi;
+    const matches = html.match(pattern);
+    if (matches && matches.length > 0) {
+      return matches[0];
+    }
+  } catch {
+    // Fall through to date-based URL.
+  }
+  return insightsOnIndiaUrl(istDateString());
+}
+
 export interface FetchNewsHtmlResult {
   status: 'ok' | 'missing' | 'error';
   url: string;
@@ -74,8 +104,11 @@ export interface FetchNewsHtmlResult {
  * Returns `missing` for 404/410 (page not yet published), `error` for other failures.
  * Uses Next 1h revalidation to dedupe duplicate fetches inside Vercel.
  */
-export async function fetchInsightsOnIndiaHtml(date: string): Promise<FetchNewsHtmlResult> {
-  const url = insightsOnIndiaUrl(date);
+export async function fetchInsightsOnIndiaHtml(
+  date: string,
+  explicitUrl?: string,
+): Promise<FetchNewsHtmlResult> {
+  const url = explicitUrl ?? insightsOnIndiaUrl(date);
   let res: Response;
   try {
     res = await fetch(url, {

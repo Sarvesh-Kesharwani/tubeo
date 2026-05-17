@@ -5,6 +5,7 @@ import { summarizeInsightsOnIndiaPage, DeepSeekRequestError } from './deepseek';
 import {
   extractInsightsArticleText,
   fetchInsightsOnIndiaHtml,
+  fetchLatestInsightsUrl,
   insightsOnIndiaUrl,
   istDateString,
 } from './news-source';
@@ -57,7 +58,8 @@ function pickSummary(
 }
 
 async function ensureRawHtml(date: string): Promise<{ html: string | null; sourceUrl: string; fetchedAt?: string }> {
-  const sourceUrl = insightsOnIndiaUrl(date);
+  const isLatest = date === istDateString();
+  const sourceUrl = isLatest ? await fetchLatestInsightsUrl() : insightsOnIndiaUrl(date);
 
   try {
     const cached = await readNewsRaw(date);
@@ -68,7 +70,7 @@ async function ensureRawHtml(date: string): Promise<{ html: string | null; sourc
     // Fall through to live fetch.
   }
 
-  const live = await fetchInsightsOnIndiaHtml(date);
+  const live = await fetchInsightsOnIndiaHtml(date, isLatest ? sourceUrl : undefined);
   if (live.status !== 'ok' || !live.html) {
     return { html: null, sourceUrl: live.url || sourceUrl };
   }
