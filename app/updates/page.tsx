@@ -3,6 +3,7 @@ import { ChannelRow } from '@/components/ChannelRow';
 import { DurationFilter } from '@/components/DurationFilter';
 import { EmptyState } from '@/components/EmptyState';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
+import { RefreshButton } from '@/components/RefreshButton';
 import { TimeFilter } from '@/components/TimeFilter';
 import { UpdatesChannelSelector } from '@/components/UpdatesChannelSelector';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
@@ -28,7 +29,10 @@ export default async function UpdatesPage({
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-3">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">Updates</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">Updates</h1>
+          <RefreshButton paths={['/updates']} hint="Fetch latest videos from YouTube" />
+        </div>
         <Suspense fallback={null}>
           <UpdatesHeader selectedIds={store.updatesChannelIds} />
         </Suspense>

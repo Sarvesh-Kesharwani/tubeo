@@ -5,6 +5,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { NewsPromptEditor } from '@/components/NewsPromptEditor';
 import { NewsSummaryCard } from '@/components/NewsSummaryCard';
+import { RefreshButton } from '@/components/RefreshButton';
 import { TimeFilter } from '@/components/TimeFilter';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
 import { getCookieViewPreferences } from '@/lib/channels-cookie';
@@ -36,7 +37,10 @@ export default async function NewsPage({
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-3">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">News</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">News</h1>
+          <RefreshButton paths={['/news']} hint="Re-fetch news channel videos" />
+        </div>
         <p className="text-sm text-duo-mute">
           Today’s UPSC current-affairs digest from InsightsOnIndia plus videos from channels you’ve assigned to the
           “{NEWS_SPACE}” space.

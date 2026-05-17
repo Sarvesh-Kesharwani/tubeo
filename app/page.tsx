@@ -4,6 +4,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { MixedFeedClient } from '@/components/MixedFeedClient';
 import { QuotaUsageTracker } from '@/components/QuotaUsageTracker';
+import { RefreshButton } from '@/components/RefreshButton';
 import { TimeFilter } from '@/components/TimeFilter';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
 import { getCookieViewPreferences } from '@/lib/channels-cookie';
@@ -29,7 +30,10 @@ export default async function MixedPage({
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-3">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">Mixed feed</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">Mixed feed</h1>
+          <RefreshButton paths={['/']} hint="Fetch latest videos from YouTube" />
+        </div>
         <Suspense fallback={null}>
           <TimeFilter active={range} />
         </Suspense>
