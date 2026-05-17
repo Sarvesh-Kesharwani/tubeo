@@ -21,6 +21,7 @@ import type { TubeoUserIdentity } from './supabase-sync';
 
 export type NewsLoadStatus =
   | 'ok'
+  | 'ready'
   | 'no-config'
   | 'no-html-yet'
   | 'no-prompt'
@@ -199,4 +200,39 @@ export async function loadNewsForUser(
     regenerated: true,
     rawFetchedAt: fetchedAt,
   };
+}
+
+/**
+ * Reads already-generated state only. No source-page fetch, no DeepSeek call.
+ * The "Fetch today's Insights" button is the only path that performs work.
+ */
+export async function readNewsForUser(
+  identity: TubeoUserIdentity,
+  options: { date?: string } = {},
+): Promise<NewsLoadResult> {
+  const date = options.date ?? istDateString();
+  const sourceUrl = insightsOnIndiaUrl(date);
+
+  if (!isSupabaseNewsConfigured()) {
+    return { date, sourceUrl, status: 'no-config', summary: null, regenerated: false };
+  }
+
+  const state = await readNewsState(identity);
+  const prompt = state?.prompt ?? '';
+  if (!prompt.trim()) {
+    return { date, sourceUrl, status: 'no-prompt', summary: null, regenerated: false };
+  }
+
+  const existing = pickSummary(state, date, promptHash(prompt));
+  if (existing) {
+    return {
+      date,
+      sourceUrl: existing.sourceUrl || sourceUrl,
+      status: 'ok',
+      summary: existing,
+      regenerated: false,
+    };
+  }
+
+  return { date, sourceUrl, status: 'ready', summary: null, regenerated: false };
 }

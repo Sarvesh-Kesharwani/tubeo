@@ -5,13 +5,12 @@ import { EmptyState } from '@/components/EmptyState';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { NewsPromptEditor } from '@/components/NewsPromptEditor';
 import { NewsSummaryCard } from '@/components/NewsSummaryCard';
-import { RefreshButton } from '@/components/RefreshButton';
 import { TimeFilter } from '@/components/TimeFilter';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
 import { getCookieViewPreferences } from '@/lib/channels-cookie';
 import { matchesDurationFilter, parseDurationFilter } from '@/lib/duration';
 import { parseMediaFilter } from '@/lib/media';
-import { loadNewsForUser } from '@/lib/news-service';
+import { readNewsForUser } from '@/lib/news-service';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
 import { normalizeSpaceName } from '@/lib/spaces';
@@ -39,7 +38,11 @@ export default async function NewsPage({
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">News</h1>
-          <RefreshButton paths={['/news']} hint="Re-fetch news channel videos" />
+          <div className="flex flex-wrap items-center gap-2">
+            <Suspense fallback={null}>
+              <NewsPromptSection />
+            </Suspense>
+          </div>
         </div>
         <p className="text-sm text-duo-mute">
           Today’s UPSC current-affairs digest from InsightsOnIndia plus videos from channels you’ve assigned to the
@@ -49,10 +52,6 @@ export default async function NewsPage({
 
       <Suspense fallback={<SummarySkeleton />}>
         <NewsSummarySection />
-      </Suspense>
-
-      <Suspense fallback={<PromptSkeleton />}>
-        <NewsPromptSection />
       </Suspense>
 
       <section className="flex flex-col gap-3">
@@ -107,7 +106,7 @@ async function NewsSummarySection() {
     );
   }
 
-  const result = await loadNewsForUser(identity);
+  const result = await readNewsForUser(identity);
   return <NewsSummaryCard initial={result} />;
 }
 
@@ -207,15 +206,6 @@ function SummarySkeleton() {
         <div className="h-4 w-5/6 rounded bg-duo-soft animate-pulse" />
         <div className="h-4 w-2/3 rounded bg-duo-soft animate-pulse" />
       </div>
-    </section>
-  );
-}
-
-function PromptSkeleton() {
-  return (
-    <section className="card p-5 space-y-3">
-      <div className="h-5 w-40 rounded bg-duo-soft animate-pulse" />
-      <div className="h-32 w-full rounded-2xl bg-duo-soft animate-pulse" />
     </section>
   );
 }

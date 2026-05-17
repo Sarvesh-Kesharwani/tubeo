@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 const STORAGE_KEY = 'tubeo_news_prompt_v1';
 
@@ -28,7 +27,7 @@ function saveLocal(value: PersistedPrompt): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
   } catch {
-    // localStorage may be unavailable (private mode, quota). Ignore.
+    // localStorage may be unavailable. Supabase is still the source of truth.
   }
 }
 
@@ -39,16 +38,13 @@ export function NewsPromptEditor({
   initialPrompt: string;
   initialUpdatedAt: string | null;
 }) {
-  const router = useRouter();
   const [prompt, setPrompt] = useState(initialPrompt);
   const [savedPrompt, setSavedPrompt] = useState(initialPrompt);
   const [updatedAt, setUpdatedAt] = useState<string | null>(initialUpdatedAt);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
-  // Hydrate from localStorage if it's newer than the server-rendered prompt.
   useEffect(() => {
     const local = loadLocal();
     if (!local) return;
@@ -56,6 +52,8 @@ export function NewsPromptEditor({
     const serverTime = initialUpdatedAt ? Date.parse(initialUpdatedAt) : 0;
     if (Number.isFinite(localTime) && localTime > serverTime && local.prompt !== initialPrompt) {
       setPrompt(local.prompt);
+      setSavedPrompt(local.prompt);
+      setUpdatedAt(local.updatedAt);
     }
   }, [initialPrompt, initialUpdatedAt]);
 
@@ -89,116 +87,102 @@ export function NewsPromptEditor({
     }
   }
 
-  async function handleGenerate() {
-    setGenerating(true);
-    setGenerateError(null);
-
-    // Auto-save prompt if dirty
-    if (prompt !== savedPrompt) {
-      const saved = await savePrompt();
-      if (!saved) {
-        setGenerating(false);
-        setGenerateError('Failed to save prompt before generating. Fix the error and try again.');
-        return;
-      }
-    }
-
-    try {
-      const res = await fetch('/api/news/summary', { method: 'POST' });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || `Generate failed (${res.status})`);
-      }
-      router.refresh();
-    } catch (err) {
-      setGenerateError((err as Error).message);
-    } finally {
-      setGenerating(false);
-    }
-  }
-
   async function handleSave() {
-    await savePrompt();
+    const ok = await savePrompt();
+    if (ok) setOpen(false);
   }
 
   const dirty = prompt !== savedPrompt;
   const remaining = 8000 - prompt.length;
 
   return (
-    <section className="card p-4 sm:p-5 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-extrabold text-duo-blueDark">DeepSeek prompt</h3>
-          <p className="text-xs text-duo-mute">
-            Tell the AI what JSON shape to return when summarizing the InsightsOnIndia page. Empty prompt = built-in default.
-          </p>
-        </div>
-        <span className={`chip cursor-default text-[11px] ${remaining < 0 ? 'text-duo-red' : ''}`}>
-          {remaining.toLocaleString()} left
-        </span>
-      </div>
+    <>
+      <button
+        type="button"
+        className="btn-duo bg-white text-duo-blueDark shadow-duo"
+        onClick={() => setOpen(true)}
+      >
+        Prompt
+      </button>
 
-      <textarea
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
-        rows={8}
-        spellCheck={false}
-        placeholder={
-          'Example:\nReturn JSON: { "topics": [ { "title": "...", "why_it_matters": "...", "bullets": ["..."], "tags": ["GS2","Polity"] } ] }\nKeep bullets under 25 words. Up to 12 topics.'
-        }
-        className="w-full resize-y rounded-2xl border-2 border-duo-border bg-white p-3 font-mono text-[13px] leading-relaxed text-duo-ink focus:border-duo-blue focus:outline-none"
-      />
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-duo-ink/35 p-4">
+          <section className="card max-h-[88vh] w-full max-w-3xl overflow-y-auto p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-extrabold text-duo-blueDark">DeepSeek prompt</h3>
+                <p className="mt-1 text-xs text-duo-mute">
+                  Saved prompt stays hidden here. Fetch uses this prompt until you update it.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="chip"
+                onClick={() => {
+                  setPrompt(savedPrompt);
+                  setStatus('idle');
+                  setError(null);
+                  setOpen(false);
+                }}
+              >
+                Close
+              </button>
+            </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs text-duo-mute">
-          {updatedAt
-            ? `Synced ${new Date(updatedAt).toLocaleString()}`
-            : 'Not synced yet — saves to Supabase on Save.'}
-          {dirty && <span className="ml-2 font-semibold text-duo-blueDark">Unsaved changes</span>}
-          {status === 'saved' && <span className="ml-2 font-semibold text-duo-green">Saved.</span>}
-          {status === 'error' && error && (
-            <span className="ml-2 font-semibold text-duo-red">{error}</span>
-          )}
-        </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs text-duo-mute">
+                {updatedAt ? `Synced ${new Date(updatedAt).toLocaleString()}` : 'Not synced yet.'}
+                {dirty && <span className="ml-2 font-semibold text-duo-blueDark">Unsaved changes</span>}
+                {status === 'saved' && <span className="ml-2 font-semibold text-duo-green">Saved.</span>}
+              </span>
+              <span className={`chip cursor-default text-[11px] ${remaining < 0 ? 'text-duo-red' : ''}`}>
+                {remaining.toLocaleString()} left
+              </span>
+            </div>
 
-        <div className="flex gap-2">
-          {dirty && (
-            <button
-              type="button"
-              className="chip"
-              onClick={() => {
-                setPrompt(savedPrompt);
-                setStatus('idle');
-                setError(null);
-              }}
-            >
-              Reset
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn-duo bg-duo-blue text-white shadow-duoBlue disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={handleSave}
-            disabled={status === 'saving' || !dirty || prompt.length > 8000}
-          >
-            {status === 'saving' ? 'Saving…' : 'Save prompt'}
-          </button>
-          <button
-            type="button"
-            className="btn-duo-green disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={handleGenerate}
-            disabled={generating || prompt.length > 8000 || prompt.trim().length === 0}
-          >
-            {generating ? 'Generating…' : 'Generate Summary'}
-          </button>
-        </div>
-      </div>
+            <textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              rows={10}
+              spellCheck={false}
+              placeholder={
+                'Example:\nReturn JSON: { "topics": [ { "title": "...", "why_it_matters": "...", "bullets": ["..."], "tags": ["GS2","Polity"] } ] }\nKeep bullets under 25 words. Up to 12 topics.'
+              }
+              className="mt-3 w-full resize-y rounded-2xl border-2 border-duo-border bg-white p-3 font-mono text-[13px] leading-relaxed text-duo-ink focus:border-duo-blue focus:outline-none"
+            />
 
-      {generateError && (
-        <div className="rounded-chonk border-2 border-duo-red bg-white px-4 py-3 text-sm font-semibold text-duo-red">
-          {generateError}
+            {status === 'error' && error && (
+              <div className="mt-3 rounded-chonk border-2 border-duo-red bg-white px-4 py-3 text-sm font-semibold text-duo-red">
+                {error}
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              {dirty && (
+                <button
+                  type="button"
+                  className="chip"
+                  onClick={() => {
+                    setPrompt(savedPrompt);
+                    setStatus('idle');
+                    setError(null);
+                  }}
+                >
+                  Reset
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn-duo bg-duo-blue text-white shadow-duoBlue disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleSave}
+                disabled={status === 'saving' || !dirty || prompt.length > 8000}
+              >
+                {status === 'saving' ? 'Saving...' : 'Save prompt'}
+              </button>
+            </div>
+          </section>
         </div>
       )}
-    </section>
+    </>
   );
 }

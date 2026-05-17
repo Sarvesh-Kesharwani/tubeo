@@ -1,6 +1,6 @@
 -- Run this in the existing TodoTrails Supabase project.
 -- Creates the Tubeo News state (per-user prompt + summaries) and the shared
--- raw HTML cache that the daily cron writes into.
+-- raw HTML cache that the user-triggered fetch action writes into.
 --
 -- This schema does not touch existing TodoTrails tables. It creates only:
 -- - public.tubeo_news_state
@@ -45,7 +45,7 @@ grant select, insert, update, delete on public.tubeo_news_state to service_role;
 
 
 -- Shared raw HTML cache, keyed by IST date (YYYY-MM-DD).
--- The daily cron writes one row per available InsightsOnIndia page.
+-- The "Fetch today's Insights" action writes one row per available InsightsOnIndia page.
 create table if not exists public.tubeo_news_raw (
   date text primary key,
   url text not null,

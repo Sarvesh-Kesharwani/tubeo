@@ -1,4 +1,4 @@
-import { loadNewsForUser } from '@/lib/news-service';
+import { loadNewsForUser, readNewsForUser } from '@/lib/news-service';
 import { parseIstDateString } from '@/lib/news-source';
 import { getSession } from '@/lib/session';
 import { getTubeoUserIdentity } from '@/lib/supabase-sync';
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   const identity = getTubeoUserIdentity(session);
   if (!identity) return fail('Not authenticated', 401);
 
-  const result = await loadNewsForUser(identity, { date: dateParam(req) });
+  const result = await readNewsForUser(identity, { date: dateParam(req) });
   return Response.json({ ok: true, ...result });
 }
 
