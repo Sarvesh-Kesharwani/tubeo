@@ -15,6 +15,9 @@ const MONTH_NAMES = [
   'december',
 ];
 
+const INSIGHTSONINDIA_BASE_URL =
+  'https://www.insightsonindia.com/2026/05/12/upsc-current-affairs-12-may-2026/';
+
 /**
  * IST is UTC+05:30. Returns the calendar date in IST that contains `now`.
  */
@@ -41,6 +44,14 @@ export function parseIstDateString(value: string): { y: number; m: number; d: nu
   const d = Number(match[3]);
   if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
   if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const checked = new Date(Date.UTC(y, m - 1, d));
+  if (
+    checked.getUTCFullYear() !== y ||
+    checked.getUTCMonth() !== m - 1 ||
+    checked.getUTCDate() !== d
+  ) {
+    return null;
+  }
   return { y, m, d };
 }
 
@@ -58,7 +69,9 @@ export function insightsOnIndiaUrl(date: string | { y: number; m: number; d: num
   const yyyy = y.toString().padStart(4, '0');
   const mm = m.toString().padStart(2, '0');
   const dd = d.toString().padStart(2, '0');
-  return `https://www.insightsonindia.com/${yyyy}/${mm}/${dd}/upsc-current-affairs-${d}-${month}-${y}/`;
+  return INSIGHTSONINDIA_BASE_URL
+    .replace('/2026/05/12/', `/${yyyy}/${mm}/${dd}/`)
+    .replace('upsc-current-affairs-12-may-2026', `upsc-current-affairs-${d}-${month}-${yyyy}`);
 }
 
 const LANDING_PAGE_URL = 'https://www.insightsonindia.com/current-affairs-upsc/';

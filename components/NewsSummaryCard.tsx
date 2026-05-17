@@ -418,7 +418,7 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
             type="url"
             value={manualUrl}
             onChange={(event) => setManualUrl(event.target.value)}
-            placeholder="https://www.insightsonindia.com/2026/05/16/upsc-current-affairs-16-may-2026/"
+            placeholder="https://www.insightsonindia.com/2026/05/12/upsc-current-affairs-12-may-2026/"
             className="flex-1 rounded-2xl border-2 border-duo-border bg-white px-4 py-2.5 text-sm text-duo-ink placeholder:text-duo-mute focus:border-duo-blue focus:outline-none"
             onKeyDown={(event) => event.key === 'Enter' && fetchFromUrl()}
           />
