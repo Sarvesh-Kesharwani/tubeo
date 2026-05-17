@@ -1,7 +1,7 @@
 'use client';
 
 import type React from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { NewsLoadResult } from '@/lib/news-service';
 import type { NewsSummaryEntry } from '@/lib/supabase-news';
@@ -251,11 +251,9 @@ function isToday(dateStr: string): boolean {
 
 export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
   const router = useRouter();
-  const pickerRef = useRef<HTMLDivElement>(null);
   const [result, setResult] = useState<NewsLoadResult>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showPicker, setShowPicker] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [manualUrl, setManualUrl] = useState('');
 
@@ -263,17 +261,6 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
     setResult(initial);
     setError(null);
   }, [initial]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
-        setShowPicker(false);
-      }
-    }
-    if (!showPicker) return;
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showPicker]);
 
   async function fetchInsights() {
     setBusy(true);
@@ -334,46 +321,27 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
   }
 
   function handleDateChange(value: string) {
-    setShowPicker(false);
     if (value && value !== result.date) {
       router.push(`/news?date=${value}`);
     }
   }
 
   const today = isToday(result.date);
-  const dateLabel = today ? `Today's summary - ${result.date}` : `Summary - ${result.date}`;
+  const dateLabel = today ? "Today's summary" : 'Summary';
 
   return (
     <section className="space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="relative inline-block" ref={pickerRef}>
-            <button
-              type="button"
-              onClick={() => setShowPicker((s) => !s)}
-              className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-lg font-extrabold text-duo-ink transition-colors hover:text-duo-blueDark"
-            >
-              {dateLabel}
-              <svg className="h-4 w-4 text-duo-mute" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
-            </button>
-            {showPicker && (
-              <div className="absolute left-0 top-full z-20 mt-2 rounded-2xl border-2 border-duo-border bg-white p-3 shadow-lg">
-                <input
-                  type="date"
-                  value={result.date}
-                  onChange={(event) => handleDateChange(event.target.value)}
-                  className="rounded-xl border-2 border-duo-border bg-white px-3 py-2 text-sm font-semibold text-duo-ink focus:border-duo-blue focus:outline-none"
-                  autoFocus
-                />
-              </div>
-            )}
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-lg font-extrabold text-duo-ink">{dateLabel}</h2>
+            <input
+              type="date"
+              aria-label="Summary date"
+              value={result.date}
+              onChange={(event) => handleDateChange(event.target.value)}
+              className="rounded-full border-2 border-duo-border bg-white px-3 py-1.5 text-sm font-bold text-duo-ink focus:border-duo-blue focus:outline-none"
+            />
           </div>
           <p className="text-xs text-duo-mute">
             Source:{' '}
