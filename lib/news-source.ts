@@ -98,7 +98,11 @@ export async function fetchInsightsOnIndiaHtml(date: string): Promise<FetchNewsH
   }
 
   const html = await res.text();
-  if (/Page not found/i.test(html.slice(0, 4000)) && !/upsc-current-affairs/i.test(html.slice(0, 4000))) {
+
+  // Only treat as soft-404 when the <title> explicitly says the page wasn't found.
+  const titleMatch = html.match(/<title>([^<]*)<\/title>/i);
+  const title = titleMatch?.[1] ?? '';
+  if (/\b(?:page not found|404|not found)\b/i.test(title)) {
     return { status: 'missing', url, httpStatus: 200 };
   }
 
