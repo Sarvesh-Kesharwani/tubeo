@@ -28,7 +28,9 @@ import {
   instagramChannelId,
   parseInstagramChannelInput,
 } from '@/lib/instagram';
-import { getCachedYouTubeJson } from '@/lib/youtube-api-cache';
+import { clearMemoryYtCacheForDate, getCachedYouTubeJson } from '@/lib/youtube-api-cache';
+import { istDateString } from '@/lib/news-source';
+import { clearYtCacheForDate, isSupabaseYtCacheConfigured } from '@/lib/supabase-yt-cache';
 
 async function hydrateCookieStoreFromDriveIfNeeded(): Promise<void> {
   const session = await getSession();
@@ -96,9 +98,25 @@ async function resolveToChannelId(raw: string): Promise<string> {
   return id;
 }
 
-function ok(data: Record<string, unknown>) {
+async function ok(data: Record<string, unknown>, opts: { bustVideoCaches?: boolean } = {}) {
+  if (opts.bustVideoCaches) {
+    // Channel-set / space changes affect which channels & spaces the video pages render.
+    // Drop today's persistent yt-cache rows + the in-process map so the next render fetches
+    // fresh metadata and uploads playlists for the newly added/moved channel.
+    const today = istDateString();
+    if (isSupabaseYtCacheConfigured()) {
+      try {
+        await clearYtCacheForDate(today);
+      } catch {
+        // Best-effort. Memory cache + revalidatePath below still help.
+      }
+    }
+    clearMemoryYtCacheForDate(today);
+  }
   revalidatePath('/');
   revalidatePath('/channels');
+  revalidatePath('/news');
+  revalidatePath('/updates');
   revalidatePath('/discover');
   revalidatePath('/settings');
   return Response.json({ ok: true, ...data });
@@ -209,7 +227,7 @@ export async function POST(req: Request) {
           ...store,
           channels: [{ id: channelId, space: DEFAULT_CHANNEL_SPACE }, ...store.channels],
         });
-        return ok({ success: `@${instagramUsername}`, synced });
+        return ok({ success: `@${instagramUsername}`, synced }, { bustVideoCaches: true });
       }
 
       const channelId = await resolveToChannelId(input);
@@ -220,7 +238,7 @@ export async function POST(req: Request) {
         ...store,
         channels: [...store.channels, { id: channelId, space: DEFAULT_CHANNEL_SPACE }],
       });
-      return ok({ success: channelId, synced });
+      return ok({ success: channelId, synced }, { bustVideoCaches: true });
     }
 
     if (type === 'createSpace') {
@@ -243,7 +261,7 @@ export async function POST(req: Request) {
         channels: store.channels.filter((channel) => channel.id !== channelId),
         updatesChannelIds: store.updatesChannelIds.filter((id) => id !== channelId),
       });
-      return ok({ success: channelId, synced });
+      return ok({ success: channelId, synced }, { bustVideoCaches: true });
     }
 
     if (type === 'moveChannel') {
@@ -265,7 +283,7 @@ export async function POST(req: Request) {
         channels,
         spaces: store.spaces.includes(nextSpace) ? store.spaces : [...store.spaces, nextSpace],
       });
-      return ok({ success: nextSpace, synced });
+      return ok({ success: nextSpace, synced }, { bustVideoCaches: true });
     }
 
     if (type === 'renameSpace') {
@@ -418,7 +436,7 @@ export async function POST(req: Request) {
         spaces: store.spaces.includes(targetSpace) ? store.spaces : [...store.spaces, targetSpace],
         ignoredChannels: store.ignoredChannels.filter((item) => item.id !== channel.id),
       });
-      return ok({ success: channel.id, synced });
+      return ok({ success: channel.id, synced }, { bustVideoCaches: true });
     }
 
     if (type === 'ignoreDiscoveredChannel') {
@@ -434,7 +452,7 @@ export async function POST(req: Request) {
           ? store.ignoredChannels.map((item) => (item.id === channel.id ? { ...channel, ignoredAt: item.ignoredAt } : item))
           : [{ ...channel, ignoredAt: new Date().toISOString() }, ...store.ignoredChannels],
       });
-      return ok({ success: channel.id, synced });
+      return ok({ success: channel.id, synced }, { bustVideoCaches: true });
     }
 
     if (type === 'restoreIgnoredChannel') {
