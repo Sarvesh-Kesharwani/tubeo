@@ -173,18 +173,19 @@ async function Grouped({
   );
   const countVideos = (spaceGroups: ChannelWithVideos[]) =>
     spaceGroups.reduce((sum, group) => sum + group.videos.length, 0);
+  const countChannels = (spaceGroups: ChannelWithVideos[]) => spaceGroups.length;
   const groupsForSpace = (space: string) => visibleGroups.filter((group) => group.space === space);
 
   const tabs = [
     {
       value: CHANNELS_OVERVIEW_SPACE,
       label: DEFAULT_CHANNEL_SPACE,
-      count: countVideos(visibleGroups) + instagramChannels.length,
+      count: countChannels(visibleGroups) + instagramChannels.length,
     },
     ...orderedSpaces.filter((space) => space !== DEFAULT_CHANNEL_SPACE).map((space) => ({
       value: space,
       label: space,
-      count: countVideos(groupsForSpace(space)) + instagramCountForSpace(space),
+      count: countChannels(groupsForSpace(space)) + instagramCountForSpace(space),
     })),
   ];
 
@@ -222,6 +223,7 @@ async function Grouped({
           {orderedSpaces.map((space) => {
             const spaceGroups = groupsForSpace(space);
             const videoCount = countVideos(spaceGroups);
+            const channelCount = countChannels(spaceGroups) + instagramCountForSpace(space);
 
             return (
               <details
@@ -231,7 +233,10 @@ async function Grouped({
               >
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-extrabold text-duo-ink">
                   <span>{space}</span>
-                  <span className="chip cursor-default">{videoCount}</span>
+                  <span className="chip cursor-default">
+                    {channelCount} channel{channelCount === 1 ? '' : 's'}
+                    {videoCount > 0 ? ` - ${videoCount} video${videoCount === 1 ? '' : 's'}` : ''}
+                  </span>
                 </summary>
 
                 <div className="border-t-2 border-duo-border px-4 py-4">
