@@ -97,6 +97,7 @@ export async function addChannelAction(
 
   const input = (formData.get('url') as string ?? '').trim();
   if (!input) return { error: 'Please enter a channel URL or handle.' };
+  const targetSpace = normalizeSpaceName((formData.get('space') as string | null) ?? DEFAULT_CHANNEL_SPACE);
 
   let channelId: string;
   try {
@@ -109,7 +110,11 @@ export async function addChannelAction(
   if (existing.includes(channelId)) return { error: 'Channel already added.' };
 
   const channels = await getCookieChannelPreferences();
-  await setCookieChannelPreferences([...channels, { id: channelId, space: DEFAULT_CHANNEL_SPACE }]);
+  await setCookieChannelPreferences([...channels, { id: channelId, space: targetSpace }]);
+  const store = await getCookieChannelStore();
+  if (!store.spaces.includes(targetSpace)) {
+    await setCookieChannelSpaces([...store.spaces, targetSpace]);
+  }
   await markCookieChannelStoreDirty();
   revalidatePath('/');
   revalidatePath('/channels');

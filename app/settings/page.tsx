@@ -102,7 +102,7 @@ export default async function SettingsPage({
 
       <section className="card p-5 space-y-4">
         <h2 className="font-extrabold text-duo-ink">Add a channel</h2>
-        <AddChannelForm />
+        <AddChannelForm spaces={spaces} />
       </section>
 
       <section className="card p-5 space-y-5">

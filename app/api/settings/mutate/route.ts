@@ -200,6 +200,7 @@ export async function POST(req: Request) {
     if (type === 'addChannel') {
       const input = String(body.url ?? '').trim();
       if (!input) return fail('Please enter a channel URL or handle.');
+      const targetSpace = normalizeSpaceName(String(body.space ?? DEFAULT_CHANNEL_SPACE));
 
       const instagramUsername = parseInstagramChannelInput(input);
       if (instagramUsername) {
@@ -225,7 +226,8 @@ export async function POST(req: Request) {
 
         const synced = await persistChannelStore({
           ...store,
-          channels: [{ id: channelId, space: DEFAULT_CHANNEL_SPACE }, ...store.channels],
+          channels: [{ id: channelId, space: targetSpace }, ...store.channels],
+          spaces: store.spaces.includes(targetSpace) ? store.spaces : [...store.spaces, targetSpace],
         });
         return ok({ success: `@${instagramUsername}`, synced }, { bustVideoCaches: true });
       }
@@ -236,7 +238,8 @@ export async function POST(req: Request) {
 
       const synced = await persistChannelStore({
         ...store,
-        channels: [...store.channels, { id: channelId, space: DEFAULT_CHANNEL_SPACE }],
+        channels: [...store.channels, { id: channelId, space: targetSpace }],
+        spaces: store.spaces.includes(targetSpace) ? store.spaces : [...store.spaces, targetSpace],
       });
       return ok({ success: channelId, synced }, { bustVideoCaches: true });
     }
