@@ -6,9 +6,9 @@ import { timeAgo } from '@/lib/time';
 import type { Video } from '@/lib/types';
 
 type SummaryState =
-  | { status: 'idle'; bullets: string[]; error: null }
-  | { status: 'loading'; bullets: string[]; error: null }
-  | { status: 'ready'; bullets: string[]; error: null }
+  | { status: 'idle'; bullets: string[]; error: null; warning?: string }
+  | { status: 'loading'; bullets: string[]; error: null; warning?: string }
+  | { status: 'ready'; bullets: string[]; error: null; warning?: string }
   | { status: 'error'; bullets: string[]; error: string };
 
 export function VideoCard({
@@ -49,6 +49,7 @@ export function VideoCard({
         ok?: boolean;
         bullets?: string[];
         error?: string;
+        warning?: string;
       } | null;
 
       if (!response.ok || !data?.ok || !Array.isArray(data.bullets)) {
@@ -60,7 +61,7 @@ export function VideoCard({
         return;
       }
 
-      setSummary({ status: 'ready', bullets: data.bullets, error: null });
+      setSummary({ status: 'ready', bullets: data.bullets, error: null, warning: data.warning });
       window.dispatchEvent(new CustomEvent('tubeo-quota-updated'));
     } catch {
       setSummary({ status: 'error', bullets: [], error: 'Could not summarize this video.' });
@@ -146,14 +147,21 @@ export function VideoCard({
       </button>
 
       {summary.status === 'ready' && (
-        <ul className="mt-2 space-y-1 rounded-2xl border-2 border-duo-border bg-white p-2 text-xs font-bold leading-snug text-duo-ink">
-          {summary.bullets.map((bullet, index) => (
-            <li key={`${video.id}-summary-${index}`} className="flex gap-2">
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-duo-green" />
-              <span>{bullet}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-2 space-y-2">
+          {summary.warning && (
+            <p className="rounded-2xl border-2 border-duo-yellow bg-white px-2 py-1 text-[11px] font-bold text-duo-ink">
+              {summary.warning}
+            </p>
+          )}
+          <ul className="space-y-1 rounded-2xl border-2 border-duo-border bg-white p-2 text-xs font-bold leading-snug text-duo-ink">
+            {summary.bullets.map((bullet, index) => (
+              <li key={`${video.id}-summary-${index}`} className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-duo-green" />
+                <span>{bullet}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {summary.status === 'error' && (

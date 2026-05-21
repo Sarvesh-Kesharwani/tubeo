@@ -56,6 +56,7 @@ interface YTVideoListResp {
     id: string;
     snippet?: {
       title: string;
+      description?: string;
       publishedAt: string;
       channelId: string;
       channelTitle: string;
@@ -869,6 +870,39 @@ export async function getVideosByIdsWithQuota(videoIds: string[]): Promise<{ vid
   const order = new Map(ids.map((id, index) => [id, index]));
   return {
     videos: videos.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)),
+    quotaUnits: dataResult.fromCache ? 0 : 1,
+  };
+}
+
+export async function getVideoSummaryFallbackContext(videoId: string): Promise<{
+  text: string;
+  quotaUnits: number;
+} | null> {
+  if (!/^[\w-]{11}$/.test(videoId)) return null;
+
+  const dataResult = await yt<YTVideoListResp>(
+    'videos',
+    {
+      part: 'snippet',
+      id: videoId,
+      maxResults: '1',
+    },
+    60 * 60 * 24,
+  );
+  const item = dataResult.data.items[0];
+  if (!item?.snippet) return null;
+
+  const snippet = item.snippet;
+  const pieces = [
+    'Transcript fetch was blocked by YouTube bot verification. Use only this public video metadata. Do not invent details.',
+    `Title: ${snippet.title}`,
+    `Channel: ${snippet.channelTitle}`,
+    snippet.publishedAt ? `Published: ${snippet.publishedAt}` : '',
+    snippet.description ? `Description: ${snippet.description}` : '',
+  ].filter(Boolean);
+
+  return {
+    text: pieces.join('\n'),
     quotaUnits: dataResult.fromCache ? 0 : 1,
   };
 }
