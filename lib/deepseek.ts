@@ -147,6 +147,23 @@ export interface VideoTranscriptSummaryInput {
   transcript: string;
 }
 
+export interface TelegramTubeoIntentInput {
+  text: string;
+  replyText?: string;
+  lastUrl?: string;
+}
+
+export type TelegramTubeoIntentAction =
+  | { type: 'save_watch_later'; url: string; note?: string }
+  | { type: 'update_watch_later_note'; url: string; note: string; mode?: 'replace' | 'append' }
+  | { type: 'add_youtube_channel'; url: string }
+  | { type: 'none'; reason?: string };
+
+export interface TelegramTubeoIntent {
+  actions: TelegramTubeoIntentAction[];
+  summary: string;
+}
+
 const FALLBACK_SAVED_VIDEO_CATEGORY = 'Watch Later';
 const CATEGORIZATION_BATCH_SIZE = 12;
 const MAX_TRANSCRIPT_CHARS = 90_000;
@@ -184,6 +201,91 @@ function isDeepSeekJsonPayloadError(error: unknown): error is DeepSeekRequestErr
     (error.message.startsWith('DeepSeek returned invalid JSON') ||
       error.message.startsWith('DeepSeek returned malformed JSON'))
   );
+}
+
+function normalizeTelegramTubeoIntentAction(value: unknown): TelegramTubeoIntentAction | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  const type = typeof item.type === 'string' ? item.type.trim() : '';
+
+  if (type === 'none') {
+    return { type: 'none', reason: typeof item.reason === 'string' ? item.reason.slice(0, 160) : undefined };
+  }
+
+  const url = typeof item.url === 'string' ? item.url.trim() : '';
+  if (!url) return null;
+
+  if (type === 'save_watch_later') {
+    const note = typeof item.note === 'string' ? item.note.trim().slice(0, 1000) : '';
+    return { type, url, ...(note ? { note } : {}) };
+  }
+
+  if (type === 'update_watch_later_note') {
+    const note = typeof item.note === 'string' ? item.note.trim().slice(0, 1000) : '';
+    if (!note) return null;
+    const rawMode = typeof item.mode === 'string' ? item.mode.trim() : '';
+    const mode = rawMode === 'append' ? 'append' : 'replace';
+    return { type, url, note, mode };
+  }
+
+  if (type === 'add_youtube_channel') {
+    return { type, url };
+  }
+
+  return null;
+}
+
+export async function parseTelegramTubeoIntent(input: TelegramTubeoIntentInput): Promise<TelegramTubeoIntent> {
+  const text = input.text.trim();
+  const replyText = input.replyText?.trim() || undefined;
+  const lastUrl = input.lastUrl?.trim() || undefined;
+  if (!text && !replyText && !lastUrl) {
+    return { actions: [{ type: 'none', reason: 'empty input' }], summary: 'No Tubeo action.' };
+  }
+
+  const system =
+    'You classify Telegram messages into Tubeo actions. ' +
+    'Tubeo has a Watch Later page for YouTube, Instagram, and webpages, plus a channel list for YouTube channels. ' +
+    'Return strict compact JSON only. No markdown, no comments.';
+
+  const user = JSON.stringify({
+    currentMessage: text,
+    repliedToMessage: replyText ?? null,
+    lastUrl: lastUrl ?? null,
+    rules: [
+      'If currentMessage contains any YouTube, Instagram, or webpage URL, add save_watch_later unless user clearly says not to save it.',
+      'If user asks to update/change/replace note, emit update_watch_later_note using URL from currentMessage, repliedToMessage, or lastUrl.',
+      'If user says add channel/chanl/chanle to Tubeo and target URL is YouTube, emit add_youtube_channel.',
+      'One message can produce multiple actions.',
+      'For notes, remove URLs and command words. Keep only the user note/tag text.',
+      'For update_watch_later_note, use mode append only when user explicitly says append/add to existing note; otherwise replace.',
+      'Always output concrete URL values, resolving pronouns like this/it from repliedToMessage or lastUrl.',
+      'If there is no actionable Tubeo intent, output one none action.',
+    ],
+    outputShape:
+      '{"actions":[{"type":"save_watch_later","url":"https://...","note":"optional"},{"type":"update_watch_later_note","url":"https://...","note":"...","mode":"replace|append"},{"type":"add_youtube_channel","url":"https://..."},{"type":"none","reason":"..."}],"summary":"short"}',
+  });
+
+  const content = await runDeepSeekChat({
+    system,
+    user,
+    maxTokens: 900,
+    operation: 'Telegram Tubeo ingest intent',
+  });
+  const parsed = parseJsonPayload(content) as
+    | { actions?: unknown; summary?: unknown }
+    | Array<unknown>;
+  const rawActions = Array.isArray(parsed) ? parsed : parsed.actions;
+  const actions = (Array.isArray(rawActions) ? rawActions : [])
+    .map(normalizeTelegramTubeoIntentAction)
+    .filter((item): item is TelegramTubeoIntentAction => Boolean(item));
+
+  return {
+    actions: actions.length > 0 ? actions : [{ type: 'none', reason: 'no valid action' }],
+    summary: !Array.isArray(parsed) && typeof parsed.summary === 'string'
+      ? parsed.summary.trim().slice(0, 200)
+      : 'Tubeo intent parsed.',
+  };
 }
 
 function categorizationMaxTokens(itemCount: number): number {
