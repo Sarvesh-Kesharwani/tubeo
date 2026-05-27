@@ -60,14 +60,136 @@ function bulletList(items: unknown[]): React.ReactNode {
   );
 }
 
-function cellValue(value: unknown): React.ReactNode {
+function compactKey(key: string): string {
+  return key.trim().toLowerCase().replace(/[\s._:-]+/g, '');
+}
+
+function chipList(items: unknown[]): React.ReactNode {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items
+        .map((item) => String(item).trim())
+        .filter(Boolean)
+        .map((item, i) => (
+          <span
+            key={`${item}-${i}`}
+            className="rounded-full border border-duo-border bg-duo-soft/70 px-2 py-1 text-[11px] font-extrabold leading-tight text-duo-blueDark"
+          >
+            {item}
+          </span>
+        ))}
+    </div>
+  );
+}
+
+function pathValue(text: string): React.ReactNode {
+  const parts = text
+    .split(/\s*->\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return <span className="whitespace-pre-wrap">{text}</span>;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {parts.map((part, i) => (
+        <span key={`${part}-${i}`} className="inline-flex items-center gap-1.5">
+          <span className="rounded-full bg-duo-green/10 px-2 py-1 text-xs font-extrabold leading-tight text-duo-greenDark">
+            {part}
+          </span>
+          {i < parts.length - 1 && <span className="text-xs font-extrabold text-duo-mute">/</span>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function impactValue(text: string): React.ReactNode {
+  return (
+    <div className="rounded-2xl border border-duo-border bg-duo-yellow/15 px-3 py-2 text-sm font-semibold leading-relaxed text-duo-ink">
+      {text}
+    </div>
+  );
+}
+
+function pastNowValue(text: string): React.ReactNode {
+  const normalized = text.replace(/\s*->\s*(?=(?:ab|now|shift)\s*:)/gi, ' | ');
+  const parts = normalized
+    .split(/\s*\|\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return <span className="whitespace-pre-wrap text-sm leading-relaxed">{text}</span>;
+
+  return (
+    <div className="space-y-2">
+      {parts.map((part, i) => {
+        const match = part.match(/^([^:]{2,18}):\s*(.+)$/);
+        const rawLabel = match?.[1]?.trim() ?? `Point ${i + 1}`;
+        const labelMap: Record<string, string> = { pehle: 'Past', past: 'Past', ab: 'Now', now: 'Now', shift: 'Shift' };
+        const label = labelMap[rawLabel.toLowerCase()] ?? rawLabel;
+        const body = match?.[2]?.trim() ?? part;
+        return (
+          <div key={`${label}-${i}`} className="rounded-2xl border border-duo-border bg-white px-3 py-2 shadow-sm">
+            <div className="mb-1 text-[10px] font-extrabold uppercase tracking-wide text-duo-blueDark">{label}</div>
+            <div className="text-sm leading-relaxed text-duo-ink">{body}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function keyTermsValue(text: string): React.ReactNode {
+  const parts = text
+    .split(/\s*;\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {parts.map((part, i) => {
+        const [term, ...rest] = part.split(':');
+        const meaning = rest.join(':').trim();
+        return (
+          <div key={`${term}-${i}`} className="rounded-2xl bg-duo-soft/55 px-3 py-2">
+            {meaning ? (
+              <>
+                <div className="text-xs font-extrabold text-duo-blueDark">{term.trim()}</div>
+                <div className="mt-1 text-sm leading-relaxed text-duo-ink">{meaning}</div>
+              </>
+            ) : (
+              <div className="text-sm leading-relaxed text-duo-ink">{part}</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function articleValue(text: string): React.ReactNode {
+  return <div className="text-sm font-extrabold leading-relaxed text-duo-ink">{text}</div>;
+}
+
+function cellValue(value: unknown, key = ''): React.ReactNode {
   if (value === null || value === undefined || value === '') {
     return <span className="italic text-duo-mute">-</span>;
   }
-  if (Array.isArray(value)) return bulletList(value);
+  const normalizedKey = compactKey(key);
+  if (Array.isArray(value)) {
+    if (normalizedKey === 'tags') return chipList(value);
+    return bulletList(value);
+  }
   if (typeof value === 'object') return <RenderUnknown value={value} depth={2} />;
 
   const text = String(value);
+  if (isSerialKey(key)) return <span className="font-extrabold text-duo-greenDark">{text}</span>;
+  if (normalizedKey === 'location' || normalizedKey === 'class') return pathValue(text);
+  if (normalizedKey === 'tags') return chipList(text.split(','));
+  if (normalizedKey === 'personalimpact') return impactValue(text);
+  if (normalizedKey === 'past>now' || normalizedKey === 'pastnow') return pastNowValue(text);
+  if (normalizedKey === 'keytermsmeaning') return keyTermsValue(text);
+  if (normalizedKey === 'article') return articleValue(text);
   return <span className={`whitespace-pre-wrap ${text.length > 220 ? 'text-xs leading-relaxed' : ''}`}>{text}</span>;
 }
 
@@ -129,7 +251,7 @@ function TableShell({ columns, rows }: { columns: SummaryColumn[]; rows: Array<R
                 )}
                 {columns.map((column, j) => (
                   <td key={column.key} className={`px-4 py-3 text-duo-ink ${j === 0 ? 'font-semibold' : ''} ${column.className ?? ''}`}>
-                    {cellValue(column.getValue ? column.getValue(row) : row[column.key])}
+                    {cellValue(column.getValue ? column.getValue(row) : row[column.key], column.key)}
                   </td>
                 ))}
               </tr>
