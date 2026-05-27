@@ -252,6 +252,7 @@ function isToday(dateStr: string): boolean {
 export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
   const router = useRouter();
   const [result, setResult] = useState<NewsLoadResult>(initial);
+  const [selectedDate, setSelectedDate] = useState(initial.date);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showUrlInput, setShowUrlInput] = useState(false);
@@ -259,6 +260,7 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
 
   useEffect(() => {
     setResult(initial);
+    setSelectedDate(initial.date);
     setError(null);
   }, [initial]);
 
@@ -266,7 +268,7 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/news/summary?date=${encodeURIComponent(result.date)}`, {
+      const res = await fetch(`/api/news/summary?date=${encodeURIComponent(selectedDate)}`, {
         method: 'POST',
       });
       const data = (await res.json()) as { ok?: boolean; error?: string } & NewsLoadResult;
@@ -321,12 +323,13 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
   }
 
   function handleDateChange(value: string) {
-    if (value && value !== result.date) {
+    if (value && value !== selectedDate) {
+      setSelectedDate(value);
       router.push(`/news?date=${value}`);
     }
   }
 
-  const today = isToday(result.date);
+  const today = isToday(selectedDate);
   const dateLabel = today ? "Today's summary" : 'Summary';
 
   return (
@@ -338,7 +341,7 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
             <input
               type="date"
               aria-label="Summary date"
-              value={result.date}
+              value={selectedDate}
               onChange={(event) => handleDateChange(event.target.value)}
               className="rounded-full border-2 border-duo-border bg-white px-3 py-1.5 text-sm font-bold text-duo-ink focus:border-duo-blue focus:outline-none"
             />

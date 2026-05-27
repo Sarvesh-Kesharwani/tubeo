@@ -17,6 +17,8 @@ const MONTH_NAMES = [
 
 const INSIGHTSONINDIA_BASE_URL =
   'https://www.insightsonindia.com/2026/05/12/upsc-current-affairs-12-may-2026/';
+const INSIGHTSONINDIA_TYPO_BASE_URL =
+  'https://www.insightsonindia.com/2026/05/12/upsc-currrent-affairs-12-may-2026/';
 
 /**
  * IST is UTC+05:30. Returns the calendar date in IST that contains `now`.
@@ -60,6 +62,14 @@ export function parseIstDateString(value: string): { y: number; m: number; d: nu
  * Example: https://www.insightsonindia.com/2026/05/15/upsc-current-affairs-15-may-2026/
  */
 export function insightsOnIndiaUrl(date: string | { y: number; m: number; d: number }): string {
+  return buildInsightsOnIndiaUrl(date, INSIGHTSONINDIA_BASE_URL, 'upsc-current-affairs');
+}
+
+function buildInsightsOnIndiaUrl(
+  date: string | { y: number; m: number; d: number },
+  baseUrl: string,
+  slugPrefix: string,
+): string {
   const parts = typeof date === 'string' ? parseIstDateString(date) : date;
   if (!parts) {
     throw new Error(`Invalid date for InsightsOnIndia URL: ${String(date)}`);
@@ -69,9 +79,15 @@ export function insightsOnIndiaUrl(date: string | { y: number; m: number; d: num
   const yyyy = y.toString().padStart(4, '0');
   const mm = m.toString().padStart(2, '0');
   const dd = d.toString().padStart(2, '0');
-  return INSIGHTSONINDIA_BASE_URL
+  return baseUrl
     .replace('/2026/05/12/', `/${yyyy}/${mm}/${dd}/`)
-    .replace('upsc-current-affairs-12-may-2026', `upsc-current-affairs-${d}-${month}-${yyyy}`);
+    .replace(`${slugPrefix}-12-may-2026`, `${slugPrefix}-${d}-${month}-${yyyy}`);
+}
+
+function insightsOnIndiaUrlCandidates(date: string | { y: number; m: number; d: number }): string[] {
+  const standard = insightsOnIndiaUrl(date);
+  const typo = buildInsightsOnIndiaUrl(date, INSIGHTSONINDIA_TYPO_BASE_URL, 'upsc-currrent-affairs');
+  return standard === typo ? [standard] : [standard, typo];
 }
 
 const LANDING_PAGE_URL = 'https://www.insightsonindia.com/current-affairs-upsc/';
@@ -93,7 +109,7 @@ export async function fetchLatestInsightsUrl(): Promise<string> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const html = await res.text();
 
-    const pattern = /https?:\/\/www\.insightsonindia\.com\/\d{4}\/\d{2}\/\d{2}\/upsc-current-affairs-\d+-[a-z]+-\d{4}\//gi;
+    const pattern = /https?:\/\/www\.insightsonindia\.com\/\d{4}\/\d{2}\/\d{2}\/upsc-cur{1,3}rent-affairs-\d+-[a-z]+-\d{4}\//gi;
     const matches = html.match(pattern);
     if (matches && matches.length > 0) {
       return matches[0];
@@ -121,38 +137,51 @@ export async function fetchInsightsOnIndiaHtml(
   date: string,
   explicitUrl?: string,
 ): Promise<FetchNewsHtmlResult> {
-  const url = explicitUrl ?? insightsOnIndiaUrl(date);
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      headers: {
-        'User-Agent':
-          'TubeoNewsBot/1.0 (+https://github.com/Sarvesh-Kesharwani/tubeo) Mozilla/5.0',
-        Accept: 'text/html,application/xhtml+xml',
-      },
-      next: { revalidate: 60 * 60 },
-    });
-  } catch (error) {
-    return { status: 'error', url, error: (error as Error).message };
+  const candidates = insightsOnIndiaUrlCandidates(date);
+  const urls = explicitUrl
+    ? [explicitUrl, ...candidates.filter((candidate) => candidate !== explicitUrl)]
+    : candidates;
+  let last: FetchNewsHtmlResult | null = null;
+
+  for (const url of urls) {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'TubeoNewsBot/1.0 (+https://github.com/Sarvesh-Kesharwani/tubeo) Mozilla/5.0',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+        next: { revalidate: 60 * 60 },
+      });
+    } catch (error) {
+      last = { status: 'error', url, error: (error as Error).message };
+      continue;
+    }
+
+    if (res.status === 404 || res.status === 410) {
+      last = { status: 'missing', url, httpStatus: res.status };
+      continue;
+    }
+    if (!res.ok) {
+      last = { status: 'error', url, httpStatus: res.status, error: `HTTP ${res.status}` };
+      continue;
+    }
+
+    const html = await res.text();
+
+    // Only treat as soft-404 when the <title> explicitly says the page wasn't found.
+    const titleMatch = html.match(/<title>([^<]*)<\/title>/i);
+    const title = titleMatch?.[1] ?? '';
+    if (/\b(?:page not found|404|not found)\b/i.test(title)) {
+      last = { status: 'missing', url, httpStatus: 200 };
+      continue;
+    }
+
+    return { status: 'ok', url, html };
   }
 
-  if (res.status === 404 || res.status === 410) {
-    return { status: 'missing', url, httpStatus: res.status };
-  }
-  if (!res.ok) {
-    return { status: 'error', url, httpStatus: res.status, error: `HTTP ${res.status}` };
-  }
-
-  const html = await res.text();
-
-  // Only treat as soft-404 when the <title> explicitly says the page wasn't found.
-  const titleMatch = html.match(/<title>([^<]*)<\/title>/i);
-  const title = titleMatch?.[1] ?? '';
-  if (/\b(?:page not found|404|not found)\b/i.test(title)) {
-    return { status: 'missing', url, httpStatus: 200 };
-  }
-
-  return { status: 'ok', url, html };
+  return last ?? { status: 'missing', url: explicitUrl ?? candidates[0] };
 }
 
 /**
