@@ -86,24 +86,31 @@ interface SummaryColumn {
   getValue?: (row: Record<string, unknown>) => unknown;
 }
 
-function columnClass(key: string, index: number): string {
+function isSerialKey(key: string): boolean {
   const normalized = key.trim().toLowerCase().replace(/[\s._-]+/g, '');
-  if (['#', 'no', 'sno', 'srno', 'serial', 'number'].includes(normalized)) {
+  return ['#', 'no', 'sno', 'srno', 'serial', 'number'].includes(normalized);
+}
+
+function columnClass(key: string, index: number): string {
+  if (isSerialKey(key)) {
     return 'w-10 min-w-10 max-w-10 px-2 text-center';
   }
   return index === 0 ? 'min-w-[220px]' : '';
 }
 
 function TableShell({ columns, rows }: { columns: SummaryColumn[]; rows: Array<Record<string, unknown>> }) {
+  const hasSerialColumn = columns.some((column) => isSerialKey(column.key));
   return (
     <div className="overflow-hidden rounded-chonk border-2 border-duo-border bg-white shadow-duo">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-gradient-to-r from-duo-green/15 via-duo-blue/10 to-duo-yellow/20">
             <tr>
-              <th className="w-10 min-w-10 max-w-10 px-2 py-3 text-center text-xs font-extrabold uppercase tracking-wide text-duo-mute">
-                #
-              </th>
+              {!hasSerialColumn && (
+                <th className="w-10 min-w-10 max-w-10 px-2 py-3 text-center text-xs font-extrabold uppercase tracking-wide text-duo-mute">
+                  #
+                </th>
+              )}
               {columns.map((column) => (
                 <th
                   key={column.key}
@@ -117,7 +124,9 @@ function TableShell({ columns, rows }: { columns: SummaryColumn[]; rows: Array<R
           <tbody className="divide-y divide-duo-border">
             {rows.map((row, i) => (
               <tr key={i} className="align-top transition-colors odd:bg-white even:bg-duo-soft/20 hover:bg-duo-green/10">
-                <td className="w-10 min-w-10 max-w-10 px-2 py-3 text-center font-extrabold text-duo-greenDark">{i + 1}</td>
+                {!hasSerialColumn && (
+                  <td className="w-10 min-w-10 max-w-10 px-2 py-3 text-center font-extrabold text-duo-greenDark">{i + 1}</td>
+                )}
                 {columns.map((column, j) => (
                   <td key={column.key} className={`px-4 py-3 text-duo-ink ${j === 0 ? 'font-semibold' : ''} ${column.className ?? ''}`}>
                     {cellValue(column.getValue ? column.getValue(row) : row[column.key])}
@@ -135,6 +144,30 @@ function TableShell({ columns, rows }: { columns: SummaryColumn[]; rows: Array<R
 function objectArrayTable(rows: Array<Record<string, unknown>>, preferredColumns?: SummaryColumn[]) {
   if (rows.length === 0) return null;
   if (preferredColumns?.length) return <TableShell columns={preferredColumns} rows={rows} />;
+
+  const hinglishColumns = [
+    '#',
+    'Location',
+    'Class',
+    'Tags',
+    'Personal Impact',
+    'Past->Now',
+    'Key Terms: Meaning',
+    'Article',
+  ];
+  const allHinglishColumnsPresent = hinglishColumns.every((key) => rows.some((row) => key in row));
+  if (allHinglishColumnsPresent) {
+    return (
+      <TableShell
+        columns={hinglishColumns.map((key, index) => ({
+          key,
+          label: key,
+          className: columnClass(key, index),
+        }))}
+        rows={rows}
+      />
+    );
+  }
 
   const keys = Array.from(new Set(rows.flatMap((row) => Object.keys(row)))).slice(0, 8);
   if (keys.length === 0) return null;
@@ -209,8 +242,13 @@ function parseJsonSummary(raw: string): unknown | null {
   }
 }
 
+function parseSummarySource(value: unknown): unknown | null {
+  if (typeof value === 'string') return parseJsonSummary(value);
+  return value ?? null;
+}
+
 function SummaryBody({ summary }: { summary: NewsSummaryEntry }) {
-  const source = summary.data ?? parseJsonSummary(summary.raw);
+  const source = parseSummarySource(summary.data) ?? parseJsonSummary(summary.raw);
 
   if (Array.isArray(source) && source.length > 0 && source[0] && typeof source[0] === 'object') {
     return objectArrayTable(source as Array<Record<string, unknown>>);
