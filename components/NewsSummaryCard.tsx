@@ -86,6 +86,14 @@ interface SummaryColumn {
   getValue?: (row: Record<string, unknown>) => unknown;
 }
 
+function columnClass(key: string, index: number): string {
+  const normalized = key.trim().toLowerCase().replace(/[\s._-]+/g, '');
+  if (['#', 'no', 'sno', 'srno', 'serial', 'number'].includes(normalized)) {
+    return 'w-10 min-w-10 max-w-10 px-2 text-center';
+  }
+  return index === 0 ? 'min-w-[220px]' : '';
+}
+
 function TableShell({ columns, rows }: { columns: SummaryColumn[]; rows: Array<Record<string, unknown>> }) {
   return (
     <div className="overflow-hidden rounded-chonk border-2 border-duo-border bg-white shadow-duo">
@@ -93,7 +101,7 @@ function TableShell({ columns, rows }: { columns: SummaryColumn[]; rows: Array<R
         <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-gradient-to-r from-duo-green/15 via-duo-blue/10 to-duo-yellow/20">
             <tr>
-              <th className="w-12 px-4 py-3 text-left text-xs font-extrabold uppercase tracking-wide text-duo-mute">
+              <th className="w-10 min-w-10 max-w-10 px-2 py-3 text-center text-xs font-extrabold uppercase tracking-wide text-duo-mute">
                 #
               </th>
               {columns.map((column) => (
@@ -109,9 +117,9 @@ function TableShell({ columns, rows }: { columns: SummaryColumn[]; rows: Array<R
           <tbody className="divide-y divide-duo-border">
             {rows.map((row, i) => (
               <tr key={i} className="align-top transition-colors odd:bg-white even:bg-duo-soft/20 hover:bg-duo-green/10">
-                <td className="px-4 py-3 font-extrabold text-duo-greenDark">{i + 1}</td>
+                <td className="w-10 min-w-10 max-w-10 px-2 py-3 text-center font-extrabold text-duo-greenDark">{i + 1}</td>
                 {columns.map((column, j) => (
-                  <td key={column.key} className={`px-4 py-3 text-duo-ink ${j === 0 ? 'font-semibold' : ''}`}>
+                  <td key={column.key} className={`px-4 py-3 text-duo-ink ${j === 0 ? 'font-semibold' : ''} ${column.className ?? ''}`}>
                     {cellValue(column.getValue ? column.getValue(row) : row[column.key])}
                   </td>
                 ))}
@@ -135,7 +143,7 @@ function objectArrayTable(rows: Array<Record<string, unknown>>, preferredColumns
       columns={keys.map((key, index) => ({
         key,
         label: prettyKey(key),
-        className: index === 0 ? 'min-w-[220px]' : '',
+        className: columnClass(key, index),
       }))}
       rows={rows}
     />
