@@ -127,6 +127,7 @@ export function WatchListClient({
   const [feedOpen, setFeedOpen] = useState(false);
   const [shortFeedOpen, setShortFeedOpen] = useState(false);
   const [activeFeedId, setActiveFeedId] = useState<string | null>(null);
+  const [selectedSpaces, setSelectedSpaces] = useState<string[]>([]);
   const [url, setUrl] = useState('');
   const [note, setNote] = useState('');
   const [pending, setPending] = useState(false);
@@ -187,15 +188,33 @@ export function WatchListClient({
     });
   }, [saved]);
 
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const video of saved) {
+      const category = normalizeSavedVideoCategory(video.category);
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+    return counts;
+  }, [saved]);
+
+  const selectedSpaceSet = useMemo(() => new Set(selectedSpaces), [selectedSpaces]);
+  const visibleSorted = useMemo(
+    () =>
+      selectedSpaces.length === 0
+        ? sorted
+        : sorted.filter((video) => selectedSpaceSet.has(normalizeSavedVideoCategory(video.category))),
+    [selectedSpaceSet, selectedSpaces.length, sorted],
+  );
+
   const grouped = useMemo(
     () =>
       categories
         .map((category) => ({
           category,
-          items: sorted.filter((video) => normalizeSavedVideoCategory(video.category) === category),
+          items: visibleSorted.filter((video) => normalizeSavedVideoCategory(video.category) === category),
         }))
         .filter((group) => group.items.length > 0),
-    [categories, sorted],
+    [categories, visibleSorted],
   );
 
   const uncategorizedWithNoteCount = saved.filter(
@@ -203,6 +222,14 @@ export function WatchListClient({
       normalizeSavedVideoCategory(video.category) === UNCATEGORIZED_SAVED_CATEGORY &&
       video.note.trim(),
   ).length;
+
+  useEffect(() => {
+    const available = new Set(categories);
+    setSelectedSpaces((current) => {
+      const next = current.filter((space) => available.has(space));
+      return next.length === current.length ? current : next;
+    });
+  }, [categories]);
 
   useEffect(() => {
     const missingIds = sorted
@@ -277,7 +304,7 @@ export function WatchListClient({
       return;
     }
 
-    const firstId = sorted[0]?.id ?? null;
+    const firstId = visibleSorted[0]?.id ?? null;
     setActiveFeedId((current) => current ?? firstId);
 
     const root = feedViewportRef.current;
@@ -297,13 +324,13 @@ export function WatchListClient({
       },
     );
 
-    for (const item of sorted) {
+    for (const item of visibleSorted) {
       const node = feedItemRefs.current[item.id];
       if (node) observer.observe(node);
     }
 
     return () => observer.disconnect();
-  }, [feedOpen, sorted]);
+  }, [feedOpen, visibleSorted]);
 
   async function patchSavedVideo(
     id: string,
@@ -593,8 +620,14 @@ export function WatchListClient({
   }
 
   function handleOpenFeed() {
-    setActiveFeedId(sorted[0]?.id ?? null);
+    setActiveFeedId(visibleSorted[0]?.id ?? null);
     setFeedOpen(true);
+  }
+
+  function toggleSpaceFilter(space: string) {
+    setSelectedSpaces((current) =>
+      current.includes(space) ? current.filter((item) => item !== space) : [...current, space],
+    );
   }
 
   function renderSavedPreview(item: SavedVideo, feed = false, active = false) {
@@ -808,7 +841,7 @@ export function WatchListClient({
                 <button
                   type="button"
                   onClick={handleOpenFeed}
-                  disabled={sorted.length === 0}
+                  disabled={visibleSorted.length === 0}
                   className="btn-duo-ghost"
                 >
                   Watch Feed
@@ -855,10 +888,48 @@ export function WatchListClient({
             </form>
             {message && <p className="mt-3 text-sm font-bold text-duo-greenDark">{message}</p>}
             {error && <p className="mt-3 text-sm font-bold text-red-500">{error}</p>}
+            {categories.length > 0 && (
+              <div className="mt-4 space-y-2 border-t-2 border-duo-border pt-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-duo-greenDark">Spaces</p>
+                  <p className="text-xs font-bold text-duo-mute">
+                    {visibleSorted.length} of {sorted.length} shown
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSpaces([])}
+                    className={`chip text-xs ${selectedSpaces.length === 0 ? 'bg-duo-green text-white' : ''}`}
+                    aria-pressed={selectedSpaces.length === 0}
+                  >
+                    All spaces
+                  </button>
+                  {categories.map((space) => {
+                    const active = selectedSpaceSet.has(space);
+                    return (
+                      <button
+                        key={space}
+                        type="button"
+                        onClick={() => toggleSpaceFilter(space)}
+                        className={`chip text-xs ${active ? 'bg-duo-green text-white' : ''}`}
+                        aria-pressed={active}
+                      >
+                        {space} {categoryCounts.get(space) ?? 0}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </section>
 
           {sorted.length === 0 ? (
             <div className="card p-8 text-center font-bold text-duo-mute">No saved videos yet.</div>
+          ) : visibleSorted.length === 0 ? (
+            <div className="card p-8 text-center font-bold text-duo-mute">
+              No saved videos in selected spaces.
+            </div>
           ) : (
             <div className="space-y-5">
               {grouped.map((group) => (
@@ -934,7 +1005,7 @@ export function WatchListClient({
               </button>
             </div>
             <div ref={feedViewportRef} className="h-full snap-y snap-mandatory overflow-y-auto bg-black">
-              {sorted.map((item) => (
+              {visibleSorted.map((item) => (
                 <section
                   key={item.id}
                   ref={(node) => {
