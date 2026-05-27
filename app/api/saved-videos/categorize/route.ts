@@ -2,18 +2,19 @@ import { revalidatePath } from 'next/cache';
 import { categorizeSavedVideos, DeepSeekConfigError, DeepSeekRequestError } from '@/lib/deepseek';
 import { getSession } from '@/lib/session';
 import {
-  getCookieSavedVideos,
-  hydrateSavedVideosFromDriveIfNeeded,
   isUncategorizedSavedVideo,
   persistSavedVideos,
+  reconcileSavedVideos,
 } from '@/lib/saved-videos';
 import { normalizeSavedVideoCategory } from '@/lib/saved-videos-shared';
 
 export async function POST() {
   const session = await getSession();
-  await hydrateSavedVideosFromDriveIfNeeded(session);
+  if (!session?.user) {
+    return Response.json({ ok: false, error: 'Sign in required.' }, { status: 401 });
+  }
 
-  const current = await getCookieSavedVideos();
+  const { videos: current } = await reconcileSavedVideos(session);
   const eligible = current.filter((video) => isUncategorizedSavedVideo(video) && video.note.trim());
   if (eligible.length === 0) {
     return Response.json({ ok: true, categorized: 0, skipped: current.length, videos: current });

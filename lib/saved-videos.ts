@@ -344,15 +344,36 @@ export function resolveSavedVideoFromUrl(rawUrl: string): { id: string; url: str
 
 // --- Public ops -----------------------------------------------------------
 
+function mergeSavedVideoDuplicate(local: SavedVideo, remote: SavedVideo): SavedVideo {
+  const localCategory = normalizeSavedVideoCategory(local.category);
+  const remoteCategory = normalizeSavedVideoCategory(remote.category);
+  const category =
+    localCategory === UNCATEGORIZED_SAVED_CATEGORY && remoteCategory !== UNCATEGORIZED_SAVED_CATEGORY
+      ? remoteCategory
+      : localCategory;
+
+  return {
+    ...remote,
+    ...local,
+    note: local.note.trim() ? local.note : remote.note,
+    category,
+    source: local.source ?? remote.source,
+    linkNestId: local.linkNestId ?? remote.linkNestId,
+    addedAt: local.addedAt || remote.addedAt,
+  };
+}
+
 function mergeByIdPreservingOrder(local: SavedVideo[], remote: SavedVideo[]): SavedVideo[] {
   // Local first (new local-only adds appear at top), then remote-only items
   // (which represent things added on another device).
+  const remoteById = new Map(remote.map((item) => [item.id, item]));
   const seen = new Set<string>();
   const out: SavedVideo[] = [];
   for (const item of local) {
     if (seen.has(item.id)) continue;
     seen.add(item.id);
-    out.push(item);
+    const remoteItem = remoteById.get(item.id);
+    out.push(remoteItem ? mergeSavedVideoDuplicate(item, remoteItem) : item);
   }
   for (const item of remote) {
     if (seen.has(item.id)) continue;

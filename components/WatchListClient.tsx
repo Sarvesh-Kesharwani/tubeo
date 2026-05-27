@@ -891,7 +891,7 @@ export function WatchListClient({
             {categories.length > 0 && (
               <div className="mt-4 space-y-2 border-t-2 border-duo-border pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-duo-greenDark">Spaces</p>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-duo-greenDark">Categories</p>
                   <p className="text-xs font-bold text-duo-mute">
                     {visibleSorted.length} of {sorted.length} shown
                   </p>
@@ -903,7 +903,7 @@ export function WatchListClient({
                     className={`chip text-xs ${selectedSpaces.length === 0 ? 'bg-duo-green text-white' : ''}`}
                     aria-pressed={selectedSpaces.length === 0}
                   >
-                    All spaces
+                    All categories
                   </button>
                   {categories.map((space) => {
                     const active = selectedSpaceSet.has(space);
@@ -928,7 +928,7 @@ export function WatchListClient({
             <div className="card p-8 text-center font-bold text-duo-mute">No saved videos yet.</div>
           ) : visibleSorted.length === 0 ? (
             <div className="card p-8 text-center font-bold text-duo-mute">
-              No saved videos in selected spaces.
+              No saved videos in selected categories.
             </div>
           ) : (
             <div className="space-y-5">

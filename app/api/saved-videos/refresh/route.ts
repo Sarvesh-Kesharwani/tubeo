@@ -1,7 +1,7 @@
 import {
   getCookieSavedVideos,
-  hydrateSavedVideosFromDriveIfNeeded,
   persistSavedVideos,
+  reconcileSavedVideos,
 } from '@/lib/saved-videos';
 import { readInstagramInboxSavedVideos } from '@/lib/instagram';
 import { fetchLinkNestSavedLinks, importLinkNestRows } from '@/lib/linknest-import';
@@ -25,9 +25,12 @@ export async function POST() {
     return Response.json({ ok: false, error: 'Sign in required.' }, { status: 401 });
   }
 
-  await withTimeout(hydrateSavedVideosFromDriveIfNeeded(session), 3000, undefined);
-
-  let saved = await getCookieSavedVideos();
+  const reconciled = await withTimeout<Awaited<ReturnType<typeof reconcileSavedVideos>> | null>(
+    reconcileSavedVideos(session),
+    5000,
+    null,
+  );
+  let saved = reconciled?.videos ?? await getCookieSavedVideos();
   const [inboxSaved, linkNestRows] = await Promise.all([
     withTimeout(readInstagramInboxSavedVideos(), 5000, []),
     withTimeout(fetchLinkNestSavedLinks(), 5000, []),
