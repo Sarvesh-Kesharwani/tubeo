@@ -180,6 +180,12 @@ export interface TelegramTubeoIntent {
 const FALLBACK_SAVED_VIDEO_CATEGORY = 'Watch Later';
 const CATEGORIZATION_BATCH_SIZE = 12;
 const MAX_TRANSCRIPT_CHARS = 90_000;
+const DEFAULT_DEEPSEEK_INPUT_TOKEN_LIMIT = 60_000;
+const YOULEARN_CHUNK_TOKEN_TARGET = 12_000;
+const YOULEARN_INPUT_HEADROOM_TOKENS = 800;
+const YOULEARN_CHUNK_OUTPUT_TOKENS = 2600;
+const YOULEARN_SINGLE_OUTPUT_TOKENS = 5200;
+const YOULEARN_MERGE_OUTPUT_TOKENS = 7000;
 
 function parseJsonPayload(text: string): unknown {
   const cleaned = text
@@ -214,6 +220,94 @@ function isDeepSeekJsonPayloadError(error: unknown): error is DeepSeekRequestErr
     (error.message.startsWith('DeepSeek returned invalid JSON') ||
       error.message.startsWith('DeepSeek returned malformed JSON'))
   );
+}
+
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function deepSeekInputTokenLimit(): number {
+  return envInt('DEEPSEEK_INPUT_TOKEN_LIMIT', DEFAULT_DEEPSEEK_INPUT_TOKEN_LIMIT);
+}
+
+function youLearnChunkTokenBudget(): number {
+  return Math.min(
+    deepSeekInputTokenLimit(),
+    envInt('DEEPSEEK_YOULEARN_CHUNK_TOKEN_TARGET', YOULEARN_CHUNK_TOKEN_TARGET),
+  );
+}
+
+function splitTranscriptByBudget(transcript: string, maxChars: number): string[] {
+  if (transcript.length <= maxChars) return [transcript];
+
+  const units = transcript.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g) ?? [transcript];
+  const chunks: string[] = [];
+  let current = '';
+
+  function pushCurrent() {
+    const value = current.trim();
+    if (value) chunks.push(value);
+    current = '';
+  }
+
+  for (const unit of units) {
+    const part = unit.trim();
+    if (!part) continue;
+    if (part.length > maxChars) {
+      pushCurrent();
+      for (let i = 0; i < part.length; i += maxChars) {
+        chunks.push(part.slice(i, i + maxChars).trim());
+      }
+      continue;
+    }
+    const next = current ? `${current} ${part}` : part;
+    if (next.length > maxChars) {
+      pushCurrent();
+      current = part;
+    } else {
+      current = next;
+    }
+  }
+
+  pushCurrent();
+  return chunks;
+}
+
+async function runDeepSeekJson({
+  system,
+  user,
+  maxTokens,
+  operation,
+}: {
+  system: string;
+  user: string;
+  maxTokens: number;
+  operation: string;
+}): Promise<{ data: unknown; raw: string }> {
+  const raw = await runDeepSeekChat({ system, user, maxTokens, operation });
+  try {
+    return { data: parseJsonPayload(raw), raw };
+  } catch (error) {
+    if (!isDeepSeekJsonPayloadError(error)) throw error;
+
+    const repairSystem =
+      'Repair malformed or truncated-looking JSON into valid JSON. ' +
+      'Keep only complete, valid information present in the input. Return strict JSON only.';
+    const repairUser = JSON.stringify({
+      error: error.message,
+      malformedJson: raw.slice(0, 45_000),
+    });
+    const repaired = await runDeepSeekChat({
+      system: repairSystem,
+      user: repairUser,
+      maxTokens,
+      operation: `${operation} JSON repair`,
+    });
+    return { data: parseJsonPayload(repaired), raw: repaired };
+  }
 }
 
 function normalizeTelegramTubeoIntentAction(value: unknown): TelegramTubeoIntentAction | null {
@@ -500,30 +594,97 @@ export async function summarizeYouLearnNewsTranscript({
   }
 
   const prompt = userPrompt.trim() || DEFAULT_YOULEARN_NEWS_VIDEO_PROMPT;
-  const system =
+  const baseSystem =
     'You process one daily YouLearn news/current-affairs video transcript for a learner. ' +
     'Follow the user prompt exactly. Return strict JSON only. No markdown, no preamble. ' +
     `User prompt: ${prompt}`;
-
-  const user = JSON.stringify({
+  const baseUser = {
     date,
     videoTitle,
     videoUrl,
-    transcript: cleaned.slice(0, MAX_TRANSCRIPT_CHARS),
-  });
-
-  const content = await runDeepSeekChat({
-    system,
-    user,
-    maxTokens: 1800,
-    operation: `YouLearn news video: ${date}`,
-  });
-
-  try {
-    return { data: parseJsonPayload(content), raw: content };
-  } catch {
-    return { data: null, raw: content };
+  };
+  const emptyUser = JSON.stringify({ ...baseUser, transcript: '' });
+  const maxInputTokens = youLearnChunkTokenBudget();
+  const fixedTokens = estimateTokens(baseSystem, emptyUser) + YOULEARN_INPUT_HEADROOM_TOKENS;
+  const availableTranscriptTokens = maxInputTokens - fixedTokens;
+  if (availableTranscriptTokens < 1000) {
+    throw new DeepSeekRequestError('YouLearn prompt is too large for the DeepSeek input budget.', 400);
   }
+
+  const maxTranscriptChars = availableTranscriptTokens * 4;
+  const chunks = splitTranscriptByBudget(cleaned, maxTranscriptChars);
+
+  if (chunks.length === 1) {
+    return runDeepSeekJson({
+      system: baseSystem,
+      user: JSON.stringify({ ...baseUser, transcript: chunks[0] }),
+      maxTokens: YOULEARN_SINGLE_OUTPUT_TOKENS,
+      operation: `YouLearn news video: ${date}`,
+    });
+  }
+
+  const chunkResults: Array<{ index: number; data: unknown; raw: string }> = [];
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunkSystem =
+      baseSystem +
+      ' This is one transcript chunk, not the full video. Extract only useful notes from this chunk. ' +
+      'Use compact JSON so all important points fit.';
+    const chunkUser = JSON.stringify({
+      ...baseUser,
+      chunk: {
+        index: index + 1,
+        total: chunks.length,
+      },
+      transcript: chunks[index],
+    });
+    const result = await runDeepSeekJson({
+      system: chunkSystem,
+      user: chunkUser,
+      maxTokens: YOULEARN_CHUNK_OUTPUT_TOKENS,
+      operation: `YouLearn news video: ${date} chunk ${index + 1}/${chunks.length}`,
+    });
+    chunkResults.push({ index: index + 1, ...result });
+  }
+
+  const mergeSystem =
+    'You merge chunk-level YouLearn transcript notes into one final study note. ' +
+    'Follow the original user prompt exactly for output shape and language. ' +
+    'Deduplicate repeated ideas, preserve chronology when useful, keep it concise, and return strict JSON only. ' +
+    `Original user prompt: ${prompt}`;
+  const mergeUser = JSON.stringify({
+    date,
+    videoTitle,
+    videoUrl,
+    chunkCount: chunks.length,
+    chunkNotes: chunkResults.map((chunk) => ({
+      index: chunk.index,
+      data: chunk.data,
+    })),
+  });
+  const merged = await runDeepSeekJson({
+    system: mergeSystem,
+    user: mergeUser,
+    maxTokens: YOULEARN_MERGE_OUTPUT_TOKENS,
+    operation: `YouLearn news video: ${date} merge ${chunks.length} chunks`,
+  });
+
+  return {
+    data: merged.data,
+    raw: JSON.stringify(
+      {
+        mode: 'chunked',
+        chunkCount: chunks.length,
+        chunkTokenBudget: maxInputTokens,
+        merged: merged.raw,
+        chunks: chunkResults.map((chunk) => ({
+          index: chunk.index,
+          raw: chunk.raw,
+        })),
+      },
+      null,
+      2,
+    ),
+  };
 }
 
 export interface InsightsNewsSummaryInput {
