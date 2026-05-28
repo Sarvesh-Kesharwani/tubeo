@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AppStateTracker />
         </Suspense>
         <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b-2 border-duo-border">
-          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-3 flex items-center justify-between gap-2 sm:gap-3">
+          <div className="w-full px-3 sm:px-6 lg:px-8 py-2 sm:py-3 flex items-center justify-between gap-2 sm:gap-3">
             <Link href="/" className="flex items-center gap-2 font-extrabold text-lg sm:text-xl text-duo-greenDark shrink-0">
               <span aria-hidden>🦉</span>
               <span>Tubeo</span>
@@ -53,14 +53,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
           <div className="border-t border-duo-border/60 bg-white/70">
-            <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2">
+            <div className="w-full px-3 sm:px-6 lg:px-8 py-2">
               <Suspense fallback={null}>
                 <NavTabs />
               </Suspense>
             </div>
           </div>
         </header>
-        <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6">{children}</main>
+        <main className="w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-6">{children}</main>
       </body>
     </html>
   );

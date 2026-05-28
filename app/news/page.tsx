@@ -53,7 +53,7 @@ export default async function NewsPage({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="https://www.duolingo.com/favicon.ico"
+                src="https://d35aaqx5ub95lt.cloudfront.net/favicon.ico"
                 alt=""
                 className="h-5 w-5 rounded-md"
               />

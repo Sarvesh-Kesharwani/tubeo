@@ -87,7 +87,7 @@ export default async function SettingsPage({
   });
 
   return (
-    <div suppressHydrationWarning className="max-w-3xl space-y-8">
+    <div suppressHydrationWarning className="w-full space-y-8">
       <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink flex items-center gap-2">
         <span aria-hidden>⚙️</span> Channels
       </h1>
