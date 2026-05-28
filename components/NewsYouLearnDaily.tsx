@@ -116,31 +116,10 @@ export function NewsYouLearnDaily({
   date: string;
 }) {
   const [state, setState] = useState(initialState);
-  const [sourceUrl, setSourceUrl] = useState(initialState.sourceUrl);
-  const [busy, setBusy] = useState<'import' | 'process' | 'force' | null>(null);
+  const [busy, setBusy] = useState<'process' | 'force' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const dailyVideo = useMemo(() => pickDaily(state.videos, date), [state.videos, date]);
   const summary = dailyVideo ? state.summaries[date] : null;
-
-  async function importSpace() {
-    setBusy('import');
-    setError(null);
-    try {
-      const res = await fetch('/api/news/youlearn/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceUrl }),
-      });
-      const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; error?: string };
-      if (!res.ok || !data.ok || !data.state) throw new Error(data.error || 'Import failed.');
-      setState(data.state);
-      setSourceUrl(data.state.sourceUrl);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  }
 
   async function processVideo(force = false) {
     setBusy(force ? 'force' : 'process');
@@ -171,28 +150,11 @@ export function NewsYouLearnDaily({
           </p>
         </div>
         <Link href="/settings" className="btn-duo bg-white text-duo-blueDark shadow-card">
-          Video prompt
+          Manage list
         </Link>
       </div>
 
       <div className="card space-y-3 p-4">
-        <div className="flex flex-col gap-2 lg:flex-row">
-          <input
-            value={sourceUrl}
-            onChange={(event) => setSourceUrl(event.target.value)}
-            placeholder="Paste public YouLearn space or playlist link"
-            className="min-w-0 flex-1 rounded-2xl border-2 border-duo-border px-4 py-3 text-sm font-semibold text-duo-ink outline-none focus:border-duo-blue"
-          />
-          <button
-            type="button"
-            className="btn-duo bg-duo-green text-white shadow-duoGreen disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={importSpace}
-            disabled={busy !== null || !sourceUrl.trim()}
-          >
-            {busy === 'import' ? 'Importing...' : 'Import videos'}
-          </button>
-        </div>
-
         <div className="flex flex-wrap gap-2 text-xs font-extrabold text-duo-mute">
           <span className="chip cursor-default">{state.videos.length} videos</span>
           {state.importedAt !== new Date(0).toISOString() && (
@@ -263,7 +225,7 @@ export function NewsYouLearnDaily({
         </div>
       ) : (
         <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-6 text-sm font-bold text-duo-mute">
-          No YouLearn videos imported yet.
+          No YouLearn videos imported yet. Open settings to import a public YouLearn space, folder, or playlist.
         </div>
       )}
     </section>

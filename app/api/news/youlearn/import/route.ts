@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   }
 
   if (typeof body.sourceUrl !== 'string' || !body.sourceUrl.trim()) {
-    return fail('Paste a public YouLearn space or playlist link.');
+    return fail('Paste a public YouLearn space, folder, or playlist link.');
   }
 
   try {

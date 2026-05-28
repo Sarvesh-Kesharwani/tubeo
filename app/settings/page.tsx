@@ -2,6 +2,7 @@ import { AddChannelForm } from '@/components/AddChannelForm';
 import { AddSpaceForm } from '@/components/AddSpaceForm';
 import { ChannelSettingsRow } from '@/components/ChannelSettingsRow';
 import { DriveRestoreCard } from '@/components/DriveRestoreCard';
+import { NewsYouLearnLibrarySettings } from '@/components/NewsYouLearnLibrarySettings';
 import { NewsYouLearnPromptSettings } from '@/components/NewsYouLearnPromptSettings';
 import { QuotaCard } from '@/components/QuotaCard';
 import { SpaceChannelsList, type SpaceChannelItem } from '@/components/SpaceChannelsList';
@@ -103,7 +104,12 @@ export default async function SettingsPage({
 
       {session?.user && <DriveRestoreCard />}
 
-      {session?.user && <NewsYouLearnPromptSettings initialPrompt={newsYouLearn?.prompt ?? ''} />}
+      {session?.user && newsYouLearn && (
+        <>
+          <NewsYouLearnLibrarySettings initialState={newsYouLearn} />
+          <NewsYouLearnPromptSettings initialPrompt={newsYouLearn.prompt} />
+        </>
+      )}
 
       <section className="card p-5 space-y-4">
         <h2 className="font-extrabold text-duo-ink">Add a channel</h2>

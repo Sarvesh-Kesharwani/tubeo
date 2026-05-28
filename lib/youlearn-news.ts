@@ -23,7 +23,26 @@ interface YouLearnTranscriptChunk {
   idx?: number;
 }
 
-export function extractYouLearnSpaceId(rawUrl: string): string | null {
+interface YouLearnSource {
+  id: string;
+  kind: 'space' | 'folder' | 'playlist';
+}
+
+function collectContentArrays(value: unknown, out: YouLearnContent[] = []): YouLearnContent[] {
+  if (!value || typeof value !== 'object') return out;
+  const record = value as Record<string, unknown>;
+  for (const key of ['contents', 'children', 'items', 'videos', 'data'] as const) {
+    const next = record[key];
+    if (Array.isArray(next)) {
+      out.push(...(next as YouLearnContent[]));
+    } else if (next && typeof next === 'object') {
+      collectContentArrays(next, out);
+    }
+  }
+  return out;
+}
+
+function extractYouLearnSource(rawUrl: string): YouLearnSource | null {
   const input = rawUrl.trim();
   if (!input) return null;
 
@@ -31,12 +50,21 @@ export function extractYouLearnSpaceId(rawUrl: string): string | null {
     const url = new URL(input);
     if (!/(^|\.)youlearn\.ai$/i.test(url.hostname)) return null;
     const parts = url.pathname.split('/').filter(Boolean);
-    const index = parts.findIndex((part) => part === 'space' || part === 'playlist');
+    const index = parts.findIndex((part) =>
+      ['space', 'spaces', 'playlist', 'playlists', 'folder', 'folders', 'space_folder', 'space_folders'].includes(part),
+    );
     const id = index >= 0 ? parts[index + 1] : null;
-    return id && /^[a-zA-Z0-9_-]+$/.test(id) ? id : null;
+    if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+    const marker = parts[index];
+    const kind = marker.includes('folder') ? 'folder' : marker.includes('playlist') ? 'playlist' : 'space';
+    return { id, kind };
   } catch {
     return null;
   }
+}
+
+export function extractYouLearnSpaceId(rawUrl: string): string | null {
+  return extractYouLearnSource(rawUrl)?.id ?? null;
 }
 
 function videoIdFor(content: YouLearnContent): string {
@@ -70,21 +98,40 @@ function collectVideos(items: YouLearnContent[], importedAt: string, out: NewsYo
 }
 
 export async function fetchYouLearnSpaceVideos(spaceUrl: string): Promise<NewsYouLearnVideo[]> {
-  const spaceId = extractYouLearnSpaceId(spaceUrl);
-  if (!spaceId) throw new Error('Paste a public YouLearn space or playlist link.');
+  const source = extractYouLearnSource(spaceUrl);
+  if (!source) throw new Error('Paste a public YouLearn space, folder, or playlist link.');
 
-  const res = await fetch(`https://api.youlearn.ai/space/anonymous/${spaceId}`, {
-    headers: { Accept: 'application/json' },
-    cache: 'no-store',
-  });
-  if (!res.ok) {
-    throw new Error(`YouLearn space could not be loaded (${res.status}). Make sure it is public.`);
+  const candidates =
+    source.kind === 'folder'
+      ? [
+          `https://api.youlearn.ai/space_folder/anonymous/${source.id}`,
+          `https://api.youlearn.ai/space_folders/anonymous/${source.id}`,
+          `https://api.youlearn.ai/folder/anonymous/${source.id}`,
+          `https://api.youlearn.ai/space/anonymous/${source.id}`,
+        ]
+      : [`https://api.youlearn.ai/space/anonymous/${source.id}`];
+
+  let data: unknown = null;
+  let lastStatus = 0;
+  for (const candidate of candidates) {
+    const res = await fetch(candidate, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    lastStatus = res.status;
+    if (res.ok) {
+      data = await res.json();
+      break;
+    }
   }
 
-  const data = (await res.json()) as { contents?: YouLearnContent[] };
+  if (!data) {
+    throw new Error(`YouLearn source could not be loaded (${lastStatus}). Make sure it is public.`);
+  }
+
   const importedAt = new Date().toISOString();
   const seen = new Set<string>();
-  return collectVideos(Array.isArray(data.contents) ? data.contents : [], importedAt)
+  return collectVideos(collectContentArrays(data), importedAt)
     .filter((video) => {
       const key = video.contentId || video.url;
       if (seen.has(key)) return false;

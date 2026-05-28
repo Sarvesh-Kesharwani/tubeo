@@ -32,6 +32,28 @@ function emptyStore(): ChannelPreferenceStore {
   };
 }
 
+function mergeVideos(
+  existing: NewsYouLearnState['videos'],
+  imported: NewsYouLearnState['videos'],
+): NewsYouLearnState['videos'] {
+  const seen = new Set<string>();
+  const merged: NewsYouLearnState['videos'] = [];
+  for (const video of [...existing, ...imported]) {
+    const key = video.contentId || video.url || video.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(video);
+  }
+  return merged.slice(0, 500);
+}
+
+function pruneSummaries(
+  summaries: NewsYouLearnState['summaries'],
+  videoIds: Set<string>,
+): NewsYouLearnState['summaries'] {
+  return Object.fromEntries(Object.entries(summaries).filter(([, summary]) => videoIds.has(summary.videoId)));
+}
+
 function storeFromState(state: Awaited<ReturnType<typeof readUserSyncState>>['state']): ChannelPreferenceStore {
   if (!state) return emptyStore();
   return {
@@ -89,11 +111,37 @@ export async function importNewsYouLearnSpace(
 ): Promise<NewsYouLearnState> {
   const videos = await fetchYouLearnSpaceVideos(sourceUrl);
   const state = await readNewsYouLearnState(session);
+  const mergedVideos = mergeVideos(state.videos, videos);
   return writeNewsYouLearnState(session, {
     ...state,
     sourceUrl: sourceUrl.trim(),
     importedAt: new Date().toISOString(),
+    videos: mergedVideos,
+    summaries: pruneSummaries(state.summaries, new Set(mergedVideos.map((video) => video.id))),
+  });
+}
+
+export async function removeNewsYouLearnVideo(
+  session: Session | null | undefined,
+  videoId: string,
+): Promise<NewsYouLearnState> {
+  const state = await readNewsYouLearnState(session);
+  const videos = state.videos.filter((video) => video.id !== videoId);
+  return writeNewsYouLearnState(session, {
+    ...state,
     videos,
+    summaries: pruneSummaries(state.summaries, new Set(videos.map((video) => video.id))),
+  });
+}
+
+export async function clearNewsYouLearnVideos(
+  session: Session | null | undefined,
+): Promise<NewsYouLearnState> {
+  const state = await readNewsYouLearnState(session);
+  return writeNewsYouLearnState(session, {
+    ...state,
+    videos: [],
+    summaries: {},
   });
 }
 

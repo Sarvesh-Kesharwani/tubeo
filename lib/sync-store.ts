@@ -34,7 +34,11 @@ export async function readUserSyncState(session: Session | null | undefined): Pr
     if (accessToken) {
       const driveState = await readDriveChannels(accessToken);
       if (driveState) {
-        await writeSupabaseSyncState(identity, driveState);
+        try {
+          await writeSupabaseSyncState(identity, driveState);
+        } catch {
+          return { state: driveState, source: 'drive' };
+        }
         return { state: driveState, source: 'drive', seededSupabase: true };
       }
     }
@@ -73,7 +77,14 @@ export async function writeUserSyncState(
         newsYouLearn: stateToWrite.newsYouLearn ?? existing?.newsYouLearn,
       };
     }
-    const state = await writeSupabaseSyncState(identity, stateToWrite);
+    let state: DriveSyncState;
+    try {
+      state = await writeSupabaseSyncState(identity, stateToWrite);
+    } catch (error) {
+      if (!accessToken) throw error;
+      await writeDriveChannels(accessToken, stateToWrite);
+      return { state: null, source: 'drive', driveBackupOk: true };
+    }
     if (accessToken) {
       try {
         await writeDriveChannels(accessToken, stateToWrite);
