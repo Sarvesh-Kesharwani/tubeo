@@ -25,8 +25,102 @@ function normalizeList(value: unknown): string[] {
   return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8);
 }
 
+function parseRawJson(raw: string): unknown {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function titleFromKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function primitiveText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+function GenericValue({ value }: { value: unknown }) {
+  const text = primitiveText(value);
+  if (text) {
+    return <p className="text-sm font-semibold leading-relaxed text-duo-ink">{text}</p>;
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    return (
+      <ul className="space-y-2">
+        {value.slice(0, 16).map((item, index) => {
+          const itemText = primitiveText(item);
+          return (
+            <li key={index} className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold leading-relaxed text-duo-ink shadow-sm">
+              {itemText || <GenericValue value={item} />}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
+  if (value && typeof value === 'object') {
+    return (
+      <div className="space-y-3">
+        {Object.entries(value as Record<string, unknown>).map(([key, child]) => (
+          <div key={key} className="rounded-2xl border-2 border-duo-border bg-white/80 p-3">
+            <h5 className="mb-2 text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">
+              {titleFromKey(key)}
+            </h5>
+            <GenericValue value={child} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function GenericSummary({ data }: { data: Record<string, unknown> }) {
+  const entries = Object.entries(data).filter(([, value]) => value !== null && value !== undefined);
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      {entries.slice(0, 12).map(([key, value], index) => (
+        <section
+          key={key}
+          className={`rounded-3xl border-2 border-duo-border p-4 shadow-card ${
+            index % 3 === 0 ? 'bg-duo-green/10' : index % 3 === 1 ? 'bg-duo-yellow/20' : 'bg-white'
+          }`}
+        >
+          <h4 className="mb-3 text-sm font-extrabold text-duo-ink">{titleFromKey(key)}</h4>
+          <GenericValue value={value} />
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function SummaryBlock({ summary }: { summary: NewsYouLearnVideoSummary }) {
-  const data = summary.data;
+  const data = summary.data && typeof summary.data === 'object' ? summary.data : parseRawJson(summary.raw);
   if (!data || typeof data !== 'object') {
     return (
       <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap rounded-2xl border-2 border-duo-border bg-duo-soft/50 p-3 text-xs leading-relaxed text-duo-ink">
@@ -41,6 +135,20 @@ function SummaryBlock({ summary }: { summary: NewsYouLearnVideoSummary }) {
   const impacts = normalizeList(obj.why_it_matters ?? obj.whyItMatters ?? obj.impact);
   const notes = normalizeList(obj.revision_notes ?? obj.revisionNotes ?? obj.notes);
   const terms = Array.isArray(obj.terms) ? obj.terms.slice(0, 8) : [];
+  const knownKeys = new Set([
+    'title',
+    'key_points',
+    'keyPoints',
+    'summary',
+    'why_it_matters',
+    'whyItMatters',
+    'impact',
+    'revision_notes',
+    'revisionNotes',
+    'notes',
+    'terms',
+  ]);
+  const extraData = Object.fromEntries(Object.entries(obj).filter(([key]) => !knownKeys.has(key)));
 
   return (
     <div className="space-y-3">
@@ -104,6 +212,8 @@ function SummaryBlock({ summary }: { summary: NewsYouLearnVideoSummary }) {
           </ol>
         </section>
       )}
+
+      {Object.keys(extraData).length > 0 && <GenericSummary data={extraData} />}
     </div>
   );
 }
