@@ -51,7 +51,7 @@ export default async function NewsPage({
         </div>
         <p className="text-sm text-duo-mute">
           Today's UPSC current-affairs digest from InsightsOnIndia plus videos from channels you've assigned to the
-          "{NEWS_SPACE}" space.
+          &quot;{NEWS_SPACE}&quot; space.
         </p>
       </section>
 
@@ -96,11 +96,15 @@ export default async function NewsPage({
 }
 
 async function NewsYouLearnSection({ date }: { date?: string }) {
-  const session = await getSession();
-  if (!session?.user) return null;
-  const activeDate = date ?? istDateString();
-  const state = await readNewsYouLearnState(session);
-  return <NewsYouLearnDaily initialState={state} date={activeDate} />;
+  try {
+    const session = await getSession();
+    if (!session?.user) return null;
+    const activeDate = date ?? istDateString();
+    const state = await readNewsYouLearnState(session);
+    return <NewsYouLearnDaily initialState={state} date={activeDate} />;
+  } catch {
+    return null;
+  }
 }
 
 async function NewsSummarySection({ date }: { date?: string }) {
@@ -127,8 +131,18 @@ async function NewsSummarySection({ date }: { date?: string }) {
     );
   }
 
-  const result = await readNewsForUser(identity, { date });
-  return <NewsSummaryCard initial={result} />;
+  try {
+    const result = await readNewsForUser(identity, { date });
+    return <NewsSummaryCard initial={result} />;
+  } catch {
+    return (
+      <EmptyState
+        emoji="!"
+        title="Couldn't load news summary"
+        description="The news backend is temporarily unavailable. Please try again in a moment."
+      />
+    );
+  }
 }
 
 async function NewsHistorySection({ date }: { date?: string }) {
@@ -140,17 +154,21 @@ async function NewsHistorySection({ date }: { date?: string }) {
 }
 
 async function NewsPromptSection() {
-  const session = await getSession();
-  const identity = getTubeoUserIdentity(session);
-  if (!identity || !isSupabaseNewsConfigured()) return null;
+  try {
+    const session = await getSession();
+    const identity = getTubeoUserIdentity(session);
+    if (!identity || !isSupabaseNewsConfigured()) return null;
 
-  const state = await readNewsState(identity);
-  return (
-    <NewsPromptEditor
-      initialPrompt={state?.prompt ?? ''}
-      initialUpdatedAt={state?.updatedAt ?? null}
-    />
-  );
+    const state = await readNewsState(identity);
+    return (
+      <NewsPromptEditor
+        initialPrompt={state?.prompt ?? ''}
+        initialUpdatedAt={state?.updatedAt ?? null}
+      />
+    );
+  } catch {
+    return null;
+  }
 }
 
 async function NewsVideos({

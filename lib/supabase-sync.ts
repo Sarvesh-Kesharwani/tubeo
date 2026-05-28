@@ -67,6 +67,18 @@ function tableUrl(baseUrl: string, table: string): string {
   return `${baseUrl}/rest/v1/${encodeURIComponent(table)}`;
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 5000): Promise<Response | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function readSupabaseSyncState(identity: TubeoUserIdentity): Promise<DriveSyncState | null> {
   const cfg = config();
   if (!cfg) return null;
@@ -76,15 +88,13 @@ export async function readSupabaseSyncState(identity: TubeoUserIdentity): Promis
     select: 'owner_key,user_email,user_name,state,state_updated_at,updated_at',
     limit: '1',
   });
-  const res = await fetch(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
+
+  const res = await fetchWithTimeout(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
     headers: headers(cfg.key),
     cache: 'no-store',
   });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`Supabase sync read failed: ${res.status} ${detail.slice(0, 200)}`);
-  }
+  if (!res || !res.ok) return null;
 
   const rows = (await res.json()) as SupabaseSyncRow[];
   return normalizeDriveChannelData(rows[0]?.state ?? null);

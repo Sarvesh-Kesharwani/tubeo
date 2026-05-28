@@ -5,17 +5,13 @@ import type { TubeoUserIdentity } from './supabase-sync';
 const DEFAULT_STATE_TABLE = 'tubeo_news_state';
 const DEFAULT_RAW_TABLE = 'tubeo_news_raw';
 const MAX_PROMPT_CHARS = 8000;
-const MAX_SUMMARY_HISTORY = 60; // keep last ~2 months per user
+const MAX_SUMMARY_HISTORY = 60;
 
 export interface NewsSummaryEntry {
-  /** YYYY-MM-DD (IST) */
   date: string;
   sourceUrl: string;
-  /** Parsed JSON returned by DeepSeek. May be null if parsing failed. */
   data: unknown;
-  /** Raw DeepSeek response, useful when `data` is null. */
   raw: string;
-  /** Was the user's custom prompt used (vs the built-in default). */
   usedUserPrompt: boolean;
   promptHash: string;
   generatedAt: string;
@@ -110,6 +106,18 @@ function tableUrl(baseUrl: string, table: string): string {
   return `${baseUrl}/rest/v1/${encodeURIComponent(table)}`;
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 5000): Promise<Response | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function trimPrompt(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value.replace(/\r\n/g, '\n').slice(0, MAX_PROMPT_CHARS);
@@ -138,7 +146,6 @@ function normalizeSummaries(value: unknown): Record<string, NewsSummaryEntry> {
     const normalized = normalizeSummaryEntry(entry);
     if (normalized) out[normalized.date] = normalized;
   }
-  // Cap history.
   const sortedKeys = Object.keys(out).sort().reverse();
   const trimmedKeys = sortedKeys.slice(0, MAX_SUMMARY_HISTORY);
   if (trimmedKeys.length === sortedKeys.length) return out;
@@ -158,15 +165,13 @@ export async function readNewsState(
     select: 'owner_key,user_email,user_name,prompt,summaries,updated_at',
     limit: '1',
   });
-  const res = await fetch(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
+
+  const res = await fetchWithTimeout(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
     headers: headers(cfg),
     cache: 'no-store',
   });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`Supabase news state read failed: ${res.status} ${detail.slice(0, 200)}`);
-  }
+  if (!res || !res.ok) return null;
 
   const rows = (await res.json()) as SupabaseNewsStateRow[];
   const row = rows[0];
@@ -273,15 +278,13 @@ export async function readNewsRaw(date: string): Promise<NewsRawEntry | null> {
     select: 'date,url,html,fetched_at',
     limit: '1',
   });
-  const res = await fetch(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
+
+  const res = await fetchWithTimeout(`${tableUrl(cfg.url, cfg.table)}?${qs}`, {
     headers: headers(cfg),
     cache: 'no-store',
   });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`Supabase news raw read failed: ${res.status} ${detail.slice(0, 200)}`);
-  }
+  if (!res || !res.ok) return null;
 
   const rows = (await res.json()) as SupabaseNewsRawRow[];
   const row = rows[0];
