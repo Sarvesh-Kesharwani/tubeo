@@ -618,7 +618,7 @@ export function NewsYouLearnDaily({
       const res = await fetch('/api/news/youlearn/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, force, videoId: selectedVideo.id }),
+        body: JSON.stringify({ date, force, videoId: selectedVideo.id, videos: state.videos }),
       });
       const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; error?: string };
       if (!res.ok || !data.ok || !data.state) throw new Error(data.error || 'Processing failed.');

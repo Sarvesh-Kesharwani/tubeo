@@ -13,9 +13,9 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session?.user) return fail('Sign in to process YouLearn video.', 401);
 
-  let body: { date?: unknown; force?: unknown; videoId?: unknown };
+  let body: { date?: unknown; force?: unknown; videoId?: unknown; videos?: unknown };
   try {
-    body = (await req.json()) as { date?: unknown; force?: unknown; videoId?: unknown };
+    body = (await req.json()) as typeof body;
   } catch {
     return fail('Invalid JSON body.');
   }
@@ -24,7 +24,11 @@ export async function POST(req: Request) {
   const videoId = typeof body.videoId === 'string' && body.videoId.trim() ? body.videoId.trim() : undefined;
 
   try {
-    const result = await processDailyNewsYouLearnVideo(session, date, { force: Boolean(body.force), videoId });
+    const result = await processDailyNewsYouLearnVideo(session, date, {
+      force: Boolean(body.force),
+      videoId,
+      fallbackVideos: Array.isArray(body.videos) ? body.videos : undefined,
+    });
     return NextResponse.json({ ok: true, state: result.state, summary: result.summary });
   } catch (error) {
     return fail((error as Error).message || 'Could not process YouLearn transcript.', 502);

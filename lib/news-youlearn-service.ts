@@ -9,6 +9,7 @@ import {
   type ChannelPreferenceStore,
   type NewsClipWiseProgress,
   type NewsYouLearnState,
+  type NewsYouLearnVideo,
   type NewsYouLearnVideoSummary,
 } from './types';
 import { DEFAULT_VIEW_PREFERENCES } from './view-preferences';
@@ -55,6 +56,46 @@ function mergeVideos(
     merged.push(video);
   }
   return merged.slice(0, 500);
+}
+
+function normalizeFallbackVideo(value: unknown): NewsYouLearnVideo | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Partial<NewsYouLearnVideo>;
+  const id = typeof item.id === 'string' ? item.id.trim() : '';
+  const url = typeof item.url === 'string' ? item.url.trim() : '';
+  if (!id || !url) return null;
+  return {
+    id,
+    title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : 'YouLearn video',
+    url,
+    thumbnail: typeof item.thumbnail === 'string' && item.thumbnail.trim() ? item.thumbnail.trim() : undefined,
+    durationSec:
+      typeof item.durationSec === 'number' && Number.isFinite(item.durationSec) && item.durationSec > 0
+        ? Math.round(item.durationSec)
+        : 0,
+    contentId: typeof item.contentId === 'string' && item.contentId.trim() ? item.contentId.trim() : undefined,
+    importedAt:
+      typeof item.importedAt === 'string' && item.importedAt.trim()
+        ? item.importedAt
+        : new Date().toISOString(),
+    completedAt:
+      typeof item.completedAt === 'string' && item.completedAt.trim()
+        ? item.completedAt
+        : undefined,
+  };
+}
+
+function normalizeFallbackVideos(value: unknown): NewsYouLearnState['videos'] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const videos: NewsYouLearnState['videos'] = [];
+  for (const raw of value) {
+    const video = normalizeFallbackVideo(raw);
+    if (!video || seen.has(video.id)) continue;
+    seen.add(video.id);
+    videos.push(video);
+  }
+  return videos.slice(0, 500);
 }
 
 function pruneSummaries(
@@ -299,10 +340,24 @@ export async function saveNewsYouLearnClipWiseProgress(
 export async function processDailyNewsYouLearnVideo(
   session: Session | null | undefined,
   date: string,
-  options: { force?: boolean; videoId?: string } = {},
+  options: { force?: boolean; videoId?: string; fallbackVideos?: unknown } = {},
 ): Promise<{ state: NewsYouLearnState; summary: NewsYouLearnVideoSummary }> {
-  const state = await readNewsYouLearnState(session);
+  let state = await readNewsYouLearnState(session);
   const requestedVideoId = options.videoId?.trim() || state.selectedVideoIds?.[date] || '';
+  if (requestedVideoId && !state.videos.some((item) => item.id === requestedVideoId)) {
+    const fallbackVideos = normalizeFallbackVideos(options.fallbackVideos);
+    const repairedVideos = mergeVideos(state.videos, fallbackVideos);
+    if (repairedVideos.some((item) => item.id === requestedVideoId)) {
+      state = await writeNewsYouLearnState(session, {
+        ...state,
+        importedAt: state.importedAt || new Date().toISOString(),
+        videos: repairedVideos,
+        summaries: pruneSummaries(state.summaries, new Set(repairedVideos.map((video) => video.id))),
+        selectedVideoIds: pruneSelectedVideoIds(state.selectedVideoIds, new Set(repairedVideos.map((video) => video.id))),
+        clipwiseProgress: syncClipWiseProgressForVideos(state.clipwiseProgress, repairedVideos),
+      });
+    }
+  }
   const dailyVideo = pickDailyYouLearnVideo(state.videos, date);
   const video = state.videos.find((item) => item.id === requestedVideoId) ?? dailyVideo;
   if (!video) throw new Error('Import a YouLearn space before processing daily video.');
