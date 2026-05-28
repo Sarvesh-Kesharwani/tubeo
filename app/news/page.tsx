@@ -53,21 +53,38 @@ export default async function NewsPage({
         description="Open Duolingo first, then move through the news stack."
         tone="green"
       >
-        <a
-          href="https://www.duolingo.com/"
-          target="_blank"
-          rel="noreferrer"
-          className="btn-duo bg-white text-duo-greenDark shadow-card"
-          title="Open Duolingo"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="https://d35aaqx5ub95lt.cloudfront.net/favicon.ico"
-            alt=""
-            className="h-5 w-5 rounded-md"
-          />
-          Duolingo
-        </a>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="https://www.duolingo.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="btn-duo bg-white text-duo-greenDark shadow-card"
+            title="Open Duolingo"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="https://d35aaqx5ub95lt.cloudfront.net/favicon.ico"
+              alt=""
+              className="h-5 w-5 rounded-md"
+            />
+            Duolingo
+          </a>
+          <a
+            href="https://clipwise-one.vercel.app"
+            target="_blank"
+            rel="noreferrer"
+            className="btn-duo bg-white text-duo-blueDark shadow-card"
+            title="Open ClipWise"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="https://clipwise-one.vercel.app/favicon.svg"
+              alt=""
+              className="h-5 w-5 rounded-md"
+            />
+            ClipWise
+          </a>
+        </div>
       </NewsSectionBlock>
 
       <NewsSectionBlock

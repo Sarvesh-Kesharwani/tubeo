@@ -88,13 +88,52 @@ function primitiveText(value: unknown): string {
   return '';
 }
 
-function parseSummaryData(summary: NewsYouLearnVideoSummary): unknown {
-  if (isRecord(summary.data)) return summary.data;
-  if (typeof summary.data === 'string') {
-    const parsed = parseRawJson(summary.data);
-    if (parsed) return parsed;
+function hasLayerShape(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.keys(value).some((key) => /^layer\d+$/i.test(key) || /^group[A-Z]$/i.test(key))
+  );
+}
+
+function parseJsonLikeString(value: string): unknown | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/[{[]/.test(trimmed)) return null;
+  return parseRawJson(trimmed);
+}
+
+function normalizeJsonLike(value: unknown): unknown {
+  if (typeof value === 'string') {
+    const parsed = parseJsonLikeString(value);
+    return parsed ? normalizeJsonLike(parsed) : value;
   }
-  return parseRawJson(summary.raw);
+
+  if (Array.isArray(value)) return value.map(normalizeJsonLike);
+
+  if (isRecord(value)) {
+    const unwrapped = ['data', 'raw', 'content', 'summary', 'notes', 'text']
+      .map((key) => value[key])
+      .find((item) => typeof item === 'string' && parseJsonLikeString(item));
+
+    if (typeof unwrapped === 'string') {
+      const parsed = parseJsonLikeString(unwrapped);
+      if (parsed) return normalizeJsonLike(parsed);
+    }
+
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, normalizeJsonLike(child)]));
+  }
+
+  return value;
+}
+
+function parseSummaryData(summary: NewsYouLearnVideoSummary): unknown {
+  const normalizedData = normalizeJsonLike(summary.data);
+  if (isRecord(normalizedData)) return normalizedData;
+  if (typeof normalizedData === 'string') {
+    const parsed = parseJsonLikeString(normalizedData);
+    if (parsed) return normalizeJsonLike(parsed);
+  }
+  return normalizeJsonLike(parseRawJson(summary.raw));
 }
 
 function recordList(value: unknown): Array<Record<string, unknown>> {
@@ -108,16 +147,23 @@ function textList(value: unknown): string[] {
 }
 
 function GenericValue({ value }: { value: unknown }) {
-  const text = primitiveText(value);
+  const normalized = normalizeJsonLike(value);
+  if (isRecord(normalized) && hasLayerShape(normalized)) {
+    return <LayeredSummary data={normalized} fallbackTitle="Processed notes" />;
+  }
+
+  if (typeof value === 'string' && normalized !== value) return <GenericValue value={normalized} />;
+
+  const text = primitiveText(normalized);
   if (text) {
     return <p className="text-sm font-semibold leading-relaxed text-duo-ink">{text}</p>;
   }
 
-  if (Array.isArray(value)) {
-    if (value.length === 0) return null;
+  if (Array.isArray(normalized)) {
+    if (normalized.length === 0) return null;
     return (
       <ul className="space-y-2">
-        {value.slice(0, 16).map((item, index) => {
+        {normalized.slice(0, 16).map((item, index) => {
           const itemText = primitiveText(item);
           return (
             <li key={index} className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold leading-relaxed text-duo-ink shadow-sm">
@@ -129,10 +175,10 @@ function GenericValue({ value }: { value: unknown }) {
     );
   }
 
-  if (value && typeof value === 'object') {
+  if (isRecord(normalized)) {
     return (
       <div className="space-y-3">
-        {Object.entries(value as Record<string, unknown>).map(([key, child]) => (
+        {Object.entries(normalized).map(([key, child]) => (
           <div key={key} className="rounded-2xl border-2 border-duo-border bg-white/80 p-3">
             <h5 className="mb-2 text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">
               {titleFromKey(key)}
@@ -165,17 +211,33 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
   const layer0 = isRecord(data.layer0) ? data.layer0 : {};
   const layer1 = isRecord(data.layer1) ? data.layer1 : {};
   const layer2 = isRecord(data.layer2) ? data.layer2 : {};
-  const known = new Set(['layer0', 'layer1', 'layer2']);
+  const layer3 = isRecord(data.layer3) ? data.layer3 : {};
+  const layer4 = isRecord(data.layer4) ? data.layer4 : {};
+  const layer5 = isRecord(data.layer5) ? data.layer5 : {};
+  const layer6 = isRecord(data.layer6) ? data.layer6 : {};
+  const layer7 = isRecord(data.layer7) ? data.layer7 : {};
+  const known = new Set(['layer0', 'layer1', 'layer2', 'layer3', 'layer4', 'layer5', 'layer6', 'layer7']);
   const roadmap = textList(layer0.roadmap);
   const terms = recordList(layer1.terms);
   const events = recordList(layer1.events);
   const concepts = recordList(layer2.concepts);
+  const layerBlocks = [
+    { key: 'layer3', data: layer3, label: 'Layer 3', title: 'Geopolitical landscape', tone: 'blue' },
+    { key: 'layer4', data: layer4, label: 'Layer 4', title: 'Stakeholder analysis', tone: 'yellow' },
+    { key: 'layer5', data: layer5, label: 'Layer 5', title: 'Event timeline & dynamics', tone: 'green' },
+    { key: 'layer6', data: layer6, label: 'Layer 6', title: 'Outcomes & consequences', tone: 'blue' },
+    { key: 'layer7', data: layer7, label: 'Layer 7', title: 'Layer connections', tone: 'yellow' },
+  ].filter((block) => Object.keys(block.data).length > 0);
   const extras = Object.fromEntries(Object.entries(data).filter(([key]) => !known.has(key)));
 
   return (
     <div className="space-y-4">
       <div className="rounded-3xl border-2 border-duo-green/30 bg-gradient-to-br from-duo-green/15 to-white p-4 shadow-card">
         <p className="text-xs font-extrabold uppercase tracking-wide text-duo-greenDark">Processed notes</p>
+        <div className="mt-3 rounded-2xl bg-duo-green px-4 py-3 text-white shadow-duoGreen">
+          <p className="text-xs font-extrabold uppercase tracking-wide">Layer 0</p>
+          <h4 className="text-lg font-extrabold">Video ka goal aur learning roadmap</h4>
+        </div>
         <h3 className="mt-1 text-xl font-extrabold leading-tight text-duo-ink">
           {primitiveText(layer0.goal) || primitiveText(data.title) || fallbackTitle}
         </h3>
@@ -192,6 +254,14 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
           </div>
         )}
       </div>
+
+      {(terms.length > 0 || concepts.length > 0) && (
+        <div className="rounded-3xl border-2 border-duo-blue/20 bg-white p-4 shadow-card">
+          <p className="text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">Group A</p>
+          <h3 className="mt-1 text-lg font-extrabold text-duo-ink">Foundational knowledge layers</h3>
+          <p className="text-sm font-semibold text-duo-mute">Pehle yeh padho, phir main content easy lagega.</p>
+        </div>
+      )}
 
       {terms.length > 0 && (
         <section className="rounded-3xl border-2 border-duo-blue/25 bg-duo-blue/10 p-4">
@@ -259,6 +329,36 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
         </section>
       )}
 
+      {layerBlocks.length > 0 && (
+        <div className="rounded-3xl border-2 border-duo-green/20 bg-white p-4 shadow-card">
+          <p className="text-xs font-extrabold uppercase tracking-wide text-duo-greenDark">Group B</p>
+          <h3 className="mt-1 text-lg font-extrabold text-duo-ink">Content layers</h3>
+          <p className="text-sm font-semibold text-duo-mute">Actual topic ko structured blocks mein revise karo.</p>
+        </div>
+      )}
+
+      {layerBlocks.map((block) => (
+        <section
+          key={block.key}
+          className={`rounded-3xl border-2 p-4 ${
+            block.tone === 'blue'
+              ? 'border-duo-blue/25 bg-duo-blue/10'
+              : block.tone === 'yellow'
+                ? 'border-duo-yellow/60 bg-duo-yellow/20'
+                : 'border-duo-green/25 bg-duo-green/10'
+          }`}
+        >
+          <LayerHeader
+            label={block.label}
+            title={block.title}
+            description="Formatted from saved processed notes."
+          />
+          <div className="mt-4">
+            <GenericValue value={block.data} />
+          </div>
+        </section>
+      ))}
+
       {Object.keys(extras).length > 0 && <GenericSummary data={extras} />}
     </div>
   );
@@ -315,7 +415,7 @@ function SummaryBlock({ summary }: { summary: NewsYouLearnVideoSummary }) {
   }
 
   const obj = data;
-  if (isRecord(obj.layer0) || isRecord(obj.layer1) || isRecord(obj.layer2)) {
+  if (hasLayerShape(obj)) {
     return <LayeredSummary data={obj} fallbackTitle={summary.videoTitle} />;
   }
 
