@@ -82,6 +82,26 @@ function pruneClipWiseProgress(
   );
 }
 
+function syncClipWiseProgressForVideos(
+  clipwiseProgress: NewsYouLearnState['clipwiseProgress'],
+  videos: NewsYouLearnState['videos'],
+): NewsYouLearnState['clipwiseProgress'] {
+  const now = new Date().toISOString();
+  const videoIds = new Set(videos.map((video) => video.id));
+  const next = pruneClipWiseProgress(clipwiseProgress, videoIds) ?? {};
+  for (const video of videos) {
+    const key = `${video.id}:120`;
+    next[key] = next[key] ?? {
+      videoId: video.id,
+      clipSeconds: 120,
+      done: [],
+      lastClipIndex: 0,
+      updatedAt: now,
+    };
+  }
+  return next;
+}
+
 function storeFromState(state: Awaited<ReturnType<typeof readUserSyncState>>['state']): ChannelPreferenceStore {
   if (!state) return emptyStore();
   return {
@@ -102,7 +122,20 @@ function storeFromState(state: Awaited<ReturnType<typeof readUserSyncState>>['st
 
 export async function readNewsYouLearnState(session: Session | null | undefined): Promise<NewsYouLearnState> {
   const { state } = await readUserSyncState(session);
-  return state?.newsYouLearn ?? emptyNewsYouLearnState();
+  const newsYouLearn = state?.newsYouLearn ?? emptyNewsYouLearnState();
+  if (newsYouLearn.videos.length === 0) return newsYouLearn;
+
+  const syncedProgress = syncClipWiseProgressForVideos(newsYouLearn.clipwiseProgress, newsYouLearn.videos);
+  const currentKeys = Object.keys(newsYouLearn.clipwiseProgress ?? {}).sort().join('|');
+  const syncedKeys = Object.keys(syncedProgress ?? {}).sort().join('|');
+  if (syncedKeys === currentKeys) {
+    return newsYouLearn;
+  }
+
+  return writeNewsYouLearnState(session, {
+    ...newsYouLearn,
+    clipwiseProgress: syncedProgress,
+  });
 }
 
 async function writeNewsYouLearnState(
@@ -127,9 +160,11 @@ export async function saveNewsYouLearnPrompt(
   prompt: string,
 ): Promise<NewsYouLearnState> {
   const state = await readNewsYouLearnState(session);
+  const now = new Date().toISOString();
   return writeNewsYouLearnState(session, {
     ...state,
     prompt: prompt.slice(0, 8000),
+    promptUpdatedAt: now,
   });
 }
 
@@ -147,7 +182,7 @@ export async function importNewsYouLearnSpace(
     videos: mergedVideos,
     summaries: pruneSummaries(state.summaries, new Set(mergedVideos.map((video) => video.id))),
     selectedVideoIds: pruneSelectedVideoIds(state.selectedVideoIds, new Set(mergedVideos.map((video) => video.id))),
-    clipwiseProgress: pruneClipWiseProgress(state.clipwiseProgress, new Set(mergedVideos.map((video) => video.id))),
+    clipwiseProgress: syncClipWiseProgressForVideos(state.clipwiseProgress, mergedVideos),
   });
 }
 

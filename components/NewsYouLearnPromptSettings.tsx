@@ -1,14 +1,54 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-export function NewsYouLearnPromptSettings({ initialPrompt }: { initialPrompt: string }) {
+const STORAGE_KEY = 'tubeo_news_youlearn_prompt_v1';
+
+interface StoredPrompt {
+  prompt: string;
+  updatedAt: string;
+}
+
+function readStoredPrompt(): StoredPrompt | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null') as Partial<StoredPrompt> | null;
+    if (!parsed || typeof parsed.prompt !== 'string' || typeof parsed.updatedAt !== 'string') return null;
+    return { prompt: parsed.prompt, updatedAt: parsed.updatedAt };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPrompt(value: StoredPrompt) {
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+}
+
+export function NewsYouLearnPromptSettings({
+  initialPrompt,
+  initialUpdatedAt,
+}: {
+  initialPrompt: string;
+  initialUpdatedAt: string | null;
+}) {
   const [prompt, setPrompt] = useState(initialPrompt);
   const [savedPrompt, setSavedPrompt] = useState(initialPrompt);
+  const [savedAt, setSavedAt] = useState(initialUpdatedAt ?? new Date(0).toISOString());
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const dirty = prompt !== savedPrompt;
   const remaining = 8000 - prompt.length;
+
+  useEffect(() => {
+    const local = readStoredPrompt();
+    const localTime = local ? Date.parse(local.updatedAt) : 0;
+    const serverTime = Date.parse(savedAt);
+    if (local && Number.isFinite(localTime) && localTime > (Number.isFinite(serverTime) ? serverTime : 0)) {
+      setPrompt(local.prompt);
+      setSavedPrompt(local.prompt);
+      setSavedAt(local.updatedAt);
+    }
+  }, [savedAt]);
 
   async function save() {
     setStatus('saving');
@@ -19,11 +59,14 @@ export function NewsYouLearnPromptSettings({ initialPrompt }: { initialPrompt: s
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
       });
-      const data = (await res.json()) as { ok?: boolean; prompt?: string; error?: string };
+      const data = (await res.json()) as { ok?: boolean; prompt?: string; updatedAt?: string; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed.');
       const nextPrompt = data.prompt ?? prompt;
+      const nextUpdatedAt = data.updatedAt ?? new Date().toISOString();
+      writeStoredPrompt({ prompt: nextPrompt, updatedAt: nextUpdatedAt });
       setSavedPrompt(nextPrompt);
       setPrompt(nextPrompt);
+      setSavedAt(nextUpdatedAt);
       setStatus('saved');
       setTimeout(() => setStatus((current) => (current === 'saved' ? 'idle' : current)), 2500);
     } catch (err) {

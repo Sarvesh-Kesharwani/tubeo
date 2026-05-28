@@ -188,6 +188,7 @@ export function emptyNewsYouLearnState(): NewsYouLearnState {
     sourceUrl: '',
     importedAt: new Date(0).toISOString(),
     prompt: '',
+    promptUpdatedAt: new Date(0).toISOString(),
     videos: [],
     summaries: {},
     selectedVideoIds: {},
@@ -282,6 +283,10 @@ function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefine
     sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl.trim() : '',
     importedAt: typeof value.importedAt === 'string' && value.importedAt.trim() ? value.importedAt : new Date(0).toISOString(),
     prompt: typeof value.prompt === 'string' ? value.prompt.slice(0, 8000) : '',
+    promptUpdatedAt:
+      typeof value.promptUpdatedAt === 'string' && value.promptUpdatedAt.trim()
+        ? value.promptUpdatedAt
+        : new Date(0).toISOString(),
     videos,
     summaries: trimmedSummaries,
     selectedVideoIds: normalizeNewsYouLearnSelections(value.selectedVideoIds, videoIds),

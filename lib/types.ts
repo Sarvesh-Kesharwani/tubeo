@@ -130,6 +130,7 @@ export interface NewsYouLearnState {
   sourceUrl: string;
   importedAt: string;
   prompt: string;
+  promptUpdatedAt?: string;
   videos: NewsYouLearnVideo[];
   summaries: Record<string, NewsYouLearnVideoSummary>;
   selectedVideoIds?: Record<string, string>;

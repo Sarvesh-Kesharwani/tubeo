@@ -56,6 +56,7 @@ export function NewsClipWisePlayer({
   const [progress, setProgress] = useState<ProgressStore>(initialState.clipwiseProgress ?? {});
   const [duration, setDuration] = useState(selectedVideo?.durationSec || 0);
   const [activeClipIndex, setActiveClipIndex] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -68,6 +69,7 @@ export function NewsClipWisePlayer({
     const key = progressKey(selectedVideo.id);
     setDuration(selectedVideo.durationSec || 0);
     setActiveClipIndex(progress[key]?.lastClipIndex ?? 0);
+    setCurrentTime(clipBounds(progress[key]?.lastClipIndex ?? 0, selectedVideo.durationSec || CLIP_SECONDS).start);
     setStatus(null);
   }, [progress, selectedVideo]);
 
@@ -94,6 +96,13 @@ export function NewsClipWisePlayer({
   const bounds = clipBounds(activeClip, duration || video.durationSec);
   const doneCount = done.size;
   const pct = Math.round((doneCount / totalClips) * 100);
+
+  function clipProgressPercent(index: number): number {
+    if (done.has(index)) return 100;
+    if (index !== activeClip) return 0;
+    const itemBounds = clipBounds(index, duration || video.durationSec);
+    return Math.max(0, Math.min(100, Math.round(((currentTime - itemBounds.start) / itemBounds.duration) * 100)));
+  }
 
   async function save(next: NewsClipWiseProgress) {
     setProgress((current) => ({ ...current, [progressKey(next.videoId)]: next }));
@@ -140,6 +149,7 @@ export function NewsClipWisePlayer({
     const next = Math.min(Math.max(index, 0), totalClips - 1);
     const nextBounds = clipBounds(next, duration || video.durationSec);
     setActiveClipIndex(next);
+    setCurrentTime(nextBounds.start);
     void save({
       videoId: video.id,
       clipSeconds: CLIP_SECONDS,
@@ -156,6 +166,7 @@ export function NewsClipWisePlayer({
 
   function onTimeUpdate() {
     const current = videoRef.current?.currentTime ?? 0;
+    setCurrentTime(current);
     const nextIndex = Math.min(Math.floor(current / CLIP_SECONDS), totalClips - 1);
     if (nextIndex !== activeClip) setActiveClipIndex(nextIndex);
     const currentBounds = clipBounds(nextIndex, duration || video.durationSec);
@@ -225,7 +236,10 @@ export function NewsClipWisePlayer({
               poster={video.thumbnail}
               src={video.url}
               className="aspect-video w-full bg-duo-ink object-cover"
-              onLoadedMetadata={(event) => setDuration(Math.round(event.currentTarget.duration || video.durationSec || 0))}
+              onLoadedMetadata={(event) => {
+                setDuration(Math.round(event.currentTarget.duration || video.durationSec || 0));
+                setCurrentTime(event.currentTarget.currentTime || 0);
+              }}
               onTimeUpdate={onTimeUpdate}
             />
             <div className="space-y-3 p-4">
@@ -254,6 +268,7 @@ export function NewsClipWisePlayer({
               const itemBounds = clipBounds(index, duration || video.durationSec);
               const complete = done.has(index);
               const selected = index === activeClip;
+              const clipPct = clipProgressPercent(index);
               return (
                 <button
                   key={index}
@@ -273,6 +288,14 @@ export function NewsClipWisePlayer({
                   </span>
                   <span className="mt-2 block text-xs font-extrabold opacity-80">
                     {complete ? 'Complete' : selected ? 'Playing' : 'Ready'}
+                  </span>
+                  <span className="mt-3 block h-2 overflow-hidden rounded-full bg-black/10">
+                    <span
+                      className={`block h-full rounded-full transition-all ${
+                        complete ? 'bg-white' : selected ? 'bg-white/90' : 'bg-duo-green'
+                      }`}
+                      style={{ width: `${clipPct}%` }}
+                    />
                   </span>
                 </button>
               );

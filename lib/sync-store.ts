@@ -23,13 +23,37 @@ export interface SyncStoreWriteResult {
   driveBackupOk: boolean;
 }
 
+function updatedTime(state: DriveSyncState | null | undefined): number {
+  const parsed = Date.parse(state?.updatedAt ?? '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export async function readUserSyncState(session: Session | null | undefined): Promise<SyncStoreReadResult> {
   const identity = getTubeoUserIdentity(session);
   const accessToken = session?.accessToken;
 
   if (identity && isSupabaseSyncConfigured()) {
     const supabaseState = await readSupabaseSyncState(identity);
-    if (supabaseState) return { state: supabaseState, source: 'supabase' };
+    if (supabaseState) {
+      if (!accessToken) return { state: supabaseState, source: 'supabase' };
+
+      let driveState: DriveSyncState | null = null;
+      try {
+        driveState = await readDriveChannels(accessToken);
+      } catch {
+        driveState = null;
+      }
+      if (driveState && updatedTime(driveState) > updatedTime(supabaseState)) {
+        try {
+          await writeSupabaseSyncState(identity, driveState);
+        } catch {
+          return { state: driveState, source: 'drive' };
+        }
+        return { state: driveState, source: 'drive', seededSupabase: true };
+      }
+
+      return { state: supabaseState, source: 'supabase' };
+    }
 
     if (accessToken) {
       const driveState = await readDriveChannels(accessToken);

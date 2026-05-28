@@ -107,7 +107,10 @@ export default async function SettingsPage({
       {session?.user && newsYouLearn && (
         <>
           <NewsYouLearnLibrarySettings initialState={newsYouLearn} />
-          <NewsYouLearnPromptSettings initialPrompt={newsYouLearn.prompt} />
+          <NewsYouLearnPromptSettings
+            initialPrompt={newsYouLearn.prompt}
+            initialUpdatedAt={newsYouLearn.promptUpdatedAt ?? null}
+          />
         </>
       )}
 

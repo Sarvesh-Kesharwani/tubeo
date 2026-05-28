@@ -26,7 +26,7 @@ export async function PUT(req: Request) {
 
   try {
     const state = await saveNewsYouLearnPrompt(session, body.prompt);
-    return NextResponse.json({ ok: true, prompt: state.prompt, updatedAt: new Date().toISOString() });
+    return NextResponse.json({ ok: true, prompt: state.prompt, updatedAt: state.promptUpdatedAt ?? new Date().toISOString() });
   } catch (error) {
     return fail((error as Error).message || 'Could not save prompt.', 502);
   }
