@@ -24,6 +24,15 @@ function summaryKey(date: string, videoId: string): string {
   return `${date}:${videoId}`;
 }
 
+function fileSafe(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
 function getSummaryForVideo(
   summaries: NewsYouLearnState['summaries'],
   date: string,
@@ -146,6 +155,32 @@ function parseSummaryData(summary: NewsYouLearnVideoSummary): unknown {
     if (parsed) return normalizeJsonLike(parsed);
   }
   return normalizeJsonLike(parseRawJson(summary.raw));
+}
+
+function downloadProcessedTranscript(summary: NewsYouLearnVideoSummary) {
+  const processed = parseSummaryData(summary);
+  const payload = {
+    date: summary.date,
+    video: {
+      id: summary.videoId,
+      title: summary.videoTitle,
+      url: summary.videoUrl,
+      thumbnail: summary.thumbnail,
+    },
+    generatedAt: summary.generatedAt,
+    promptHash: summary.promptHash,
+    processedTranscript: processed ?? summary.raw,
+    raw: summary.raw,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `youlearn-${summary.date}-${fileSafe(summary.videoTitle) || summary.videoId}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function recordList(value: unknown): Array<Record<string, unknown>> {
@@ -652,6 +687,16 @@ export function NewsYouLearnDaily({
                 >
                   {busy === 'process' || busy === 'force' ? 'Processing...' : summary ? 'Refresh notes' : 'Process transcript'}
                 </button>
+                {summary && (
+                  <button
+                    type="button"
+                    className="btn-duo bg-white text-duo-greenDark shadow-card"
+                    onClick={() => downloadProcessedTranscript(summary)}
+                    disabled={busy !== null}
+                  >
+                    Download JSON
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn-duo bg-duo-green text-white shadow-duoGreen disabled:cursor-not-allowed disabled:opacity-60"
