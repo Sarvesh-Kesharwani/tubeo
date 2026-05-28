@@ -331,14 +331,6 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
         )}
       </div>
 
-      {(terms.length > 0 || concepts.length > 0) && (
-        <div className="rounded-3xl border-2 border-duo-blue/20 bg-white p-4 shadow-card">
-          <p className="text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">Group A</p>
-          <h3 className="mt-1 text-lg font-extrabold text-duo-ink">Foundational knowledge layers</h3>
-          <p className="text-sm font-semibold text-duo-mute">Pehle yeh padho, phir main content easy lagega.</p>
-        </div>
-      )}
-
       {terms.length > 0 && (
         <section className="rounded-3xl border-2 border-duo-blue/25 bg-duo-blue/10 p-4">
           <LayerHeader
@@ -403,14 +395,6 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
             ))}
           </div>
         </section>
-      )}
-
-      {layerBlocks.length > 0 && (
-        <div className="rounded-3xl border-2 border-duo-green/20 bg-white p-4 shadow-card">
-          <p className="text-xs font-extrabold uppercase tracking-wide text-duo-greenDark">Group B</p>
-          <h3 className="mt-1 text-lg font-extrabold text-duo-ink">Content layers</h3>
-          <p className="text-sm font-semibold text-duo-mute">Actual topic ko structured blocks mein revise karo.</p>
-        </div>
       )}
 
       {layerBlocks.map((block) => (
