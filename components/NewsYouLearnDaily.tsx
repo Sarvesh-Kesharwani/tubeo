@@ -32,13 +32,24 @@ function parseRawJson(raw: string): unknown {
     .replace(/\s*```$/i, '')
     .trim();
 
+  function parseCandidate(value: string): unknown {
+    const parsed = JSON.parse(value);
+    if (typeof parsed === 'string') {
+      const nested = parsed.trim();
+      if (nested.startsWith('{') || nested.startsWith('[')) {
+        return parseCandidate(nested);
+      }
+    }
+    return parsed;
+  }
+
   try {
-    return JSON.parse(cleaned);
+    return parseCandidate(cleaned);
   } catch {
     const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
     if (!match) return null;
     try {
-      return JSON.parse(match[0]);
+      return parseCandidate(match[0]);
     } catch {
       return null;
     }
@@ -119,14 +130,33 @@ function GenericSummary({ data }: { data: Record<string, unknown> }) {
   );
 }
 
+function TextSummary({ raw }: { raw: string }) {
+  const blocks = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .split(/\n{2,}|(?<=\.)\s+(?=[A-Z0-9])/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
+  return (
+    <section className="rounded-3xl border-2 border-duo-border bg-white p-4 shadow-card">
+      <p className="text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">Processed notes</p>
+      <div className="mt-3 space-y-2">
+        {(blocks.length > 0 ? blocks : ['No formatted notes available.']).map((block, index) => (
+          <p key={index} className="rounded-2xl bg-duo-soft/60 px-3 py-2 text-sm font-semibold leading-relaxed text-duo-ink">
+            {block}
+          </p>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function SummaryBlock({ summary }: { summary: NewsYouLearnVideoSummary }) {
   const data = summary.data && typeof summary.data === 'object' ? summary.data : parseRawJson(summary.raw);
   if (!data || typeof data !== 'object') {
-    return (
-      <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap rounded-2xl border-2 border-duo-border bg-duo-soft/50 p-3 text-xs leading-relaxed text-duo-ink">
-        {summary.raw}
-      </pre>
-    );
+    return <TextSummary raw={summary.raw} />;
   }
 
   const obj = data as Record<string, unknown>;
