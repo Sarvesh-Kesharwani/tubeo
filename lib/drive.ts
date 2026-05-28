@@ -155,6 +155,10 @@ function normalizeNewsYouLearnVideo(value: unknown): NewsYouLearnVideo | null {
         : 0,
     contentId: typeof item.contentId === 'string' && item.contentId.trim() ? item.contentId.trim() : undefined,
     importedAt: typeof item.importedAt === 'string' && item.importedAt.trim() ? item.importedAt : new Date().toISOString(),
+    completedAt:
+      typeof item.completedAt === 'string' && item.completedAt.trim()
+        ? item.completedAt
+        : undefined,
   };
 }
 

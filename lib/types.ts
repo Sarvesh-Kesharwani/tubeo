@@ -102,6 +102,7 @@ export interface NewsYouLearnVideo {
   durationSec: number;
   contentId?: string;
   importedAt: string;
+  completedAt?: string;
 }
 
 export interface NewsYouLearnVideoSummary {

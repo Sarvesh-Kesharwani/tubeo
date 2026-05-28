@@ -12,6 +12,13 @@ function formatDuration(seconds: number): string {
   return `${hours}:${String(mins % 60).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+function isCompletedOverOneWeek(completedAt?: string): boolean {
+  if (!completedAt) return false;
+  const parsed = Date.parse(completedAt);
+  if (!Number.isFinite(parsed)) return false;
+  return Date.now() - parsed > 7 * 24 * 60 * 60 * 1000;
+}
+
 export function NewsYouLearnLibrarySettings({ initialState }: { initialState: NewsYouLearnState }) {
   const [state, setState] = useState(initialState);
   const [sourceUrl, setSourceUrl] = useState(initialState.sourceUrl);
@@ -114,8 +121,17 @@ export function NewsYouLearnLibrarySettings({ initialState }: { initialState: Ne
 
       {state.videos.length > 0 ? (
         <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
-          {state.videos.map((video) => (
-            <article key={video.id} className="flex gap-3 rounded-3xl border-2 border-duo-border bg-white p-3 shadow-card">
+          {state.videos.map((video) => {
+            const staleCompleted = isCompletedOverOneWeek(video.completedAt);
+            return (
+            <article
+              key={video.id}
+              className={`flex gap-3 rounded-3xl border-2 p-3 shadow-card ${
+                staleCompleted
+                  ? 'border-duo-red bg-duo-red/10'
+                  : 'border-duo-border bg-white'
+              }`}
+            >
               {video.thumbnail ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={video.thumbnail} alt="" className="h-16 w-24 rounded-2xl object-cover" />
@@ -127,6 +143,11 @@ export function NewsYouLearnLibrarySettings({ initialState }: { initialState: Ne
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-extrabold text-duo-mute">
                   {video.durationSec > 0 && <span className="chip cursor-default">{formatDuration(video.durationSec)}</span>}
                   {video.contentId && <span className="chip cursor-default">Transcript ready</span>}
+                  {video.completedAt && (
+                    <span className={`chip cursor-default ${staleCompleted ? 'border-duo-red text-duo-red' : 'text-duo-greenDark'}`}>
+                      {staleCompleted ? 'Completed over 1 week ago' : `Completed ${new Date(video.completedAt).toLocaleDateString()}`}
+                    </span>
+                  )}
                   <a href={video.url} target="_blank" rel="noreferrer" className="chip">
                     Open
                   </a>
@@ -141,7 +162,8 @@ export function NewsYouLearnLibrarySettings({ initialState }: { initialState: Ne
                 {busy === video.id ? 'Removing...' : 'Remove'}
               </button>
             </article>
-          ))}
+          );
+          })}
         </div>
       ) : (
         <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-6 text-sm font-bold text-duo-mute">

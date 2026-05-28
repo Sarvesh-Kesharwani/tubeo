@@ -134,6 +134,26 @@ export async function removeNewsYouLearnVideo(
   });
 }
 
+export async function markNewsYouLearnVideoCompleted(
+  session: Session | null | undefined,
+  videoId: string,
+): Promise<NewsYouLearnState> {
+  const state = await readNewsYouLearnState(session);
+  const completedAt = new Date().toISOString();
+  const videos = state.videos.map((video) =>
+    video.id === videoId
+      ? {
+          ...video,
+          completedAt,
+        }
+      : video,
+  );
+  return writeNewsYouLearnState(session, {
+    ...state,
+    videos,
+  });
+}
+
 export async function clearNewsYouLearnVideos(
   session: Session | null | undefined,
 ): Promise<NewsYouLearnState> {

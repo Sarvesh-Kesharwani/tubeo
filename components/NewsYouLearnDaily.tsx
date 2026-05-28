@@ -226,7 +226,7 @@ export function NewsYouLearnDaily({
   date: string;
 }) {
   const [state, setState] = useState(initialState);
-  const [busy, setBusy] = useState<'process' | 'force' | null>(null);
+  const [busy, setBusy] = useState<'process' | 'force' | 'complete' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const dailyVideo = useMemo(() => pickDaily(state.videos, date), [state.videos, date]);
   const summary = dailyVideo ? state.summaries[date] : null;
@@ -242,6 +242,25 @@ export function NewsYouLearnDaily({
       });
       const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; error?: string };
       if (!res.ok || !data.ok || !data.state) throw new Error(data.error || 'Processing failed.');
+      setState(data.state);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function markCompleted(videoId: string) {
+    setBusy('complete');
+    setError(null);
+    try {
+      const res = await fetch('/api/news/youlearn/videos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId, completed: true }),
+      });
+      const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; error?: string };
+      if (!res.ok || !data.ok || !data.state) throw new Error(data.error || 'Could not mark completed.');
       setState(data.state);
     } catch (err) {
       setError((err as Error).message);
@@ -294,6 +313,11 @@ export function NewsYouLearnDaily({
               <div className="flex flex-wrap gap-2">
                 <span className="chip cursor-default">Today</span>
                 {dailyVideo.durationSec > 0 && <span className="chip cursor-default">{formatDuration(dailyVideo.durationSec)}</span>}
+                {dailyVideo.completedAt && (
+                  <span className="chip cursor-default text-duo-greenDark">
+                    Completed {new Date(dailyVideo.completedAt).toLocaleDateString()}
+                  </span>
+                )}
               </div>
               <h3 className="text-base font-extrabold leading-tight text-duo-ink">{dailyVideo.title}</h3>
               <div className="flex flex-wrap gap-2">
@@ -307,6 +331,14 @@ export function NewsYouLearnDaily({
                   disabled={busy !== null}
                 >
                   {busy === 'process' || busy === 'force' ? 'Processing...' : summary ? 'Refresh notes' : 'Process transcript'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-duo bg-duo-green text-white shadow-duoGreen disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => markCompleted(dailyVideo.id)}
+                  disabled={busy !== null}
+                >
+                  {busy === 'complete' ? 'Saving...' : dailyVideo.completedAt ? 'Update completed' : 'Mark completed'}
                 </button>
               </div>
             </div>
