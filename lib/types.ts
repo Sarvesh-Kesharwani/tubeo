@@ -123,6 +123,7 @@ export interface NewsYouLearnState {
   prompt: string;
   videos: NewsYouLearnVideo[];
   summaries: Record<string, NewsYouLearnVideoSummary>;
+  selectedVideoIds?: Record<string, string>;
 }
 
 export function normalizeVocabWord(word: string): string {

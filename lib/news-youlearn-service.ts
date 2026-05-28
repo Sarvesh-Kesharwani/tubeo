@@ -18,6 +18,10 @@ function promptHash(prompt: string): string {
   return createHash('sha256').update(prompt).digest('hex').slice(0, 16);
 }
 
+function summaryKey(date: string, videoId: string): string {
+  return `${date}:${videoId}`;
+}
+
 function emptyStore(): ChannelPreferenceStore {
   return {
     channels: [],
@@ -52,6 +56,15 @@ function pruneSummaries(
   videoIds: Set<string>,
 ): NewsYouLearnState['summaries'] {
   return Object.fromEntries(Object.entries(summaries).filter(([, summary]) => videoIds.has(summary.videoId)));
+}
+
+function pruneSelectedVideoIds(
+  selectedVideoIds: NewsYouLearnState['selectedVideoIds'],
+  videoIds: Set<string>,
+): NewsYouLearnState['selectedVideoIds'] {
+  return Object.fromEntries(
+    Object.entries(selectedVideoIds ?? {}).filter(([, videoId]) => videoIds.has(videoId)),
+  );
 }
 
 function storeFromState(state: Awaited<ReturnType<typeof readUserSyncState>>['state']): ChannelPreferenceStore {
@@ -118,6 +131,7 @@ export async function importNewsYouLearnSpace(
     importedAt: new Date().toISOString(),
     videos: mergedVideos,
     summaries: pruneSummaries(state.summaries, new Set(mergedVideos.map((video) => video.id))),
+    selectedVideoIds: pruneSelectedVideoIds(state.selectedVideoIds, new Set(mergedVideos.map((video) => video.id))),
   });
 }
 
@@ -131,6 +145,7 @@ export async function removeNewsYouLearnVideo(
     ...state,
     videos,
     summaries: pruneSummaries(state.summaries, new Set(videos.map((video) => video.id))),
+    selectedVideoIds: pruneSelectedVideoIds(state.selectedVideoIds, new Set(videos.map((video) => video.id))),
   });
 }
 
@@ -162,22 +177,34 @@ export async function clearNewsYouLearnVideos(
     ...state,
     videos: [],
     summaries: {},
+    selectedVideoIds: {},
   });
 }
 
 export async function processDailyNewsYouLearnVideo(
   session: Session | null | undefined,
   date: string,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; videoId?: string } = {},
 ): Promise<{ state: NewsYouLearnState; summary: NewsYouLearnVideoSummary }> {
   const state = await readNewsYouLearnState(session);
-  const video = pickDailyYouLearnVideo(state.videos, date);
+  const requestedVideoId = options.videoId?.trim() || state.selectedVideoIds?.[date] || '';
+  const dailyVideo = pickDailyYouLearnVideo(state.videos, date);
+  const video = state.videos.find((item) => item.id === requestedVideoId) ?? dailyVideo;
   if (!video) throw new Error('Import a YouLearn space before processing daily video.');
 
   const promptH = promptHash(state.prompt);
-  const cached = state.summaries[date];
+  const key = summaryKey(date, video.id);
+  const cached = state.summaries[key] ?? (state.summaries[date]?.videoId === video.id ? state.summaries[date] : null);
   if (!options.force && cached?.videoId === video.id && cached.promptHash === promptH) {
-    return { state, summary: cached };
+    if (state.selectedVideoIds?.[date] === video.id) return { state, summary: cached };
+    const next = await writeNewsYouLearnState(session, {
+      ...state,
+      selectedVideoIds: {
+        ...(state.selectedVideoIds ?? {}),
+        [date]: video.id,
+      },
+    });
+    return { state: next, summary: cached };
   }
   if (!video.contentId) throw new Error('This YouLearn video has no content ID, so Tubeo cannot fetch its transcript.');
 
@@ -207,9 +234,13 @@ export async function processDailyNewsYouLearnVideo(
 
   const next = await writeNewsYouLearnState(session, {
     ...state,
+    selectedVideoIds: {
+      ...(state.selectedVideoIds ?? {}),
+      [date]: video.id,
+    },
     summaries: {
       ...state.summaries,
-      [date]: summary,
+      [key]: summary,
     },
   });
   return { state: next, summary };

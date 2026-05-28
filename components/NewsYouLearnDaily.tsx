@@ -20,6 +20,18 @@ function formatDuration(seconds: number): string {
   return `${hours}:${String(mins % 60).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+function summaryKey(date: string, videoId: string): string {
+  return `${date}:${videoId}`;
+}
+
+function getSummaryForVideo(
+  summaries: NewsYouLearnState['summaries'],
+  date: string,
+  videoId: string,
+): NewsYouLearnVideoSummary | null {
+  return summaries[summaryKey(date, videoId)] ?? (summaries[date]?.videoId === videoId ? summaries[date] : null);
+}
+
 function normalizeList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8);
@@ -517,21 +529,31 @@ export function NewsYouLearnDaily({
   const [state, setState] = useState(initialState);
   const [busy, setBusy] = useState<'process' | 'force' | 'complete' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
   const dailyVideo = useMemo(() => pickDaily(state.videos, date), [state.videos, date]);
-  const summary = dailyVideo ? state.summaries[date] : null;
+  const [selectedVideoId, setSelectedVideoId] = useState(
+    initialState.selectedVideoIds?.[date] || initialState.summaries[date]?.videoId || dailyVideo?.id || '',
+  );
+  const selectedVideo = useMemo(
+    () => state.videos.find((video) => video.id === selectedVideoId) ?? dailyVideo,
+    [dailyVideo, selectedVideoId, state.videos],
+  );
+  const summary = selectedVideo ? getSummaryForVideo(state.summaries, date, selectedVideo.id) : null;
 
   async function processVideo(force = false) {
+    if (!selectedVideo) return;
     setBusy(force ? 'force' : 'process');
     setError(null);
     try {
       const res = await fetch('/api/news/youlearn/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, force }),
+        body: JSON.stringify({ date, force, videoId: selectedVideo.id }),
       });
       const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; error?: string };
       if (!res.ok || !data.ok || !data.state) throw new Error(data.error || 'Processing failed.');
       setState(data.state);
+      setSelectedVideoId(data.state.selectedVideoIds?.[date] || selectedVideo.id);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -588,31 +610,40 @@ export function NewsYouLearnDaily({
         )}
       </div>
 
-      {dailyVideo ? (
+      {selectedVideo ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(320px,420px)_1fr]">
           <article className="card overflow-hidden">
             <video
               controls
               preload="metadata"
-              poster={dailyVideo.thumbnail}
-              src={dailyVideo.url}
+              poster={selectedVideo.thumbnail}
+              src={selectedVideo.url}
               className="aspect-video w-full bg-duo-ink object-cover"
             />
             <div className="space-y-3 p-4">
               <div className="flex flex-wrap gap-2">
-                <span className="chip cursor-default">Today</span>
-                {dailyVideo.durationSec > 0 && <span className="chip cursor-default">{formatDuration(dailyVideo.durationSec)}</span>}
-                {dailyVideo.completedAt && (
+                <span className="chip cursor-default">{selectedVideo.id === dailyVideo?.id ? 'Today' : 'Selected'}</span>
+                {selectedVideo.durationSec > 0 && <span className="chip cursor-default">{formatDuration(selectedVideo.durationSec)}</span>}
+                {summary && <span className="chip cursor-default text-duo-greenDark">Notes saved</span>}
+                {selectedVideo.completedAt && (
                   <span className="chip cursor-default text-duo-greenDark">
-                    Completed {new Date(dailyVideo.completedAt).toLocaleDateString()}
+                    Completed {new Date(selectedVideo.completedAt).toLocaleDateString()}
                   </span>
                 )}
               </div>
-              <h3 className="text-base font-extrabold leading-tight text-duo-ink">{dailyVideo.title}</h3>
+              <h3 className="text-base font-extrabold leading-tight text-duo-ink">{selectedVideo.title}</h3>
               <div className="flex flex-wrap gap-2">
-                <a href={dailyVideo.url} target="_blank" rel="noreferrer" className="chip">
+                <a href={selectedVideo.url} target="_blank" rel="noreferrer" className="chip">
                   Open video
                 </a>
+                <button
+                  type="button"
+                  className="btn-duo bg-white text-duo-blueDark shadow-card"
+                  onClick={() => setShowPicker((value) => !value)}
+                  disabled={busy !== null}
+                >
+                  {showPicker ? 'Hide videos' : 'Select video'}
+                </button>
                 <button
                   type="button"
                   className="btn-duo bg-duo-blue text-white shadow-duoBlue disabled:cursor-not-allowed disabled:opacity-60"
@@ -624,12 +655,51 @@ export function NewsYouLearnDaily({
                 <button
                   type="button"
                   className="btn-duo bg-duo-green text-white shadow-duoGreen disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => markCompleted(dailyVideo.id)}
+                  onClick={() => markCompleted(selectedVideo.id)}
                   disabled={busy !== null}
                 >
-                  {busy === 'complete' ? 'Saving...' : dailyVideo.completedAt ? 'Update completed' : 'Mark completed'}
+                  {busy === 'complete' ? 'Saving...' : selectedVideo.completedAt ? 'Update completed' : 'Mark completed'}
                 </button>
               </div>
+              {showPicker && (
+                <div className="max-h-[360px] space-y-2 overflow-y-auto rounded-3xl border-2 border-duo-border bg-duo-soft/50 p-3">
+                  {state.videos.map((video) => {
+                    const isActive = video.id === selectedVideo.id;
+                    const hasNotes = Boolean(getSummaryForVideo(state.summaries, date, video.id));
+                    return (
+                      <button
+                        key={video.id}
+                        type="button"
+                        className={`flex w-full items-center gap-3 rounded-2xl border-2 p-2 text-left transition-colors ${
+                          isActive
+                            ? 'border-duo-green bg-duo-green/10'
+                            : 'border-duo-border bg-white hover:bg-duo-soft'
+                        }`}
+                        onClick={() => {
+                          setSelectedVideoId(video.id);
+                          setShowPicker(false);
+                          setError(null);
+                        }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={video.thumbnail || '/icon.svg'}
+                          alt=""
+                          className="h-12 w-16 rounded-xl bg-duo-ink object-cover"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-extrabold text-duo-ink">{video.title}</span>
+                          <span className="mt-1 flex flex-wrap gap-1 text-[11px] font-extrabold text-duo-mute">
+                            {video.durationSec > 0 && <span>{formatDuration(video.durationSec)}</span>}
+                            {hasNotes && <span className="text-duo-greenDark">Notes saved</span>}
+                            {isActive && <span className="text-duo-blueDark">Selected</span>}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </article>
 

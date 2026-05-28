@@ -189,7 +189,24 @@ export function emptyNewsYouLearnState(): NewsYouLearnState {
     prompt: '',
     videos: [],
     summaries: {},
+    selectedVideoIds: {},
   };
+}
+
+function newsYouLearnSummaryKey(date: string, videoId: string): string {
+  return `${date}:${videoId}`;
+}
+
+function normalizeNewsYouLearnSelections(value: unknown, videoIds: Set<string>): Record<string, string> {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [date, rawVideoId] of Object.entries(value as Record<string, unknown>)) {
+    const videoId = typeof rawVideoId === 'string' ? rawVideoId.trim() : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && videoIds.has(videoId)) {
+      out[date] = videoId;
+    }
+  }
+  return out;
 }
 
 function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefined): NewsYouLearnState {
@@ -207,7 +224,7 @@ function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefine
   if (value.summaries && typeof value.summaries === 'object') {
     for (const raw of Object.values(value.summaries)) {
       const summary = normalizeNewsYouLearnSummary(raw);
-      if (summary) summaries[summary.date] = summary;
+      if (summary) summaries[newsYouLearnSummaryKey(summary.date, summary.videoId)] = summary;
     }
   }
 
@@ -215,6 +232,7 @@ function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefine
   for (const key of Object.keys(summaries).sort().reverse().slice(0, 90)) {
     trimmedSummaries[key] = summaries[key];
   }
+  const videoIds = new Set(videos.map((video) => video.id));
 
   return {
     sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl.trim() : '',
@@ -222,6 +240,7 @@ function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefine
     prompt: typeof value.prompt === 'string' ? value.prompt.slice(0, 8000) : '',
     videos,
     summaries: trimmedSummaries,
+    selectedVideoIds: normalizeNewsYouLearnSelections(value.selectedVideoIds, videoIds),
   };
 }
 
