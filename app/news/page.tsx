@@ -6,11 +6,13 @@ import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { NewsPromptEditor } from '@/components/NewsPromptEditor';
 import { NewsHistory } from '@/components/NewsHistory';
 import { NewsSummaryCard } from '@/components/NewsSummaryCard';
+import { NewsYouLearnDaily } from '@/components/NewsYouLearnDaily';
 import { TimeFilter } from '@/components/TimeFilter';
 import { ViewPreferenceTracker } from '@/components/ViewPreferenceTracker';
 import { getCookieViewPreferences } from '@/lib/channels-cookie';
 import { matchesDurationFilter, parseDurationFilter } from '@/lib/duration';
 import { parseMediaFilter } from '@/lib/media';
+import { readNewsYouLearnState } from '@/lib/news-youlearn-service';
 import { readNewsForUser } from '@/lib/news-service';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
@@ -61,6 +63,10 @@ export default async function NewsPage({
         <NewsSummarySection date={selectedDate} />
       </Suspense>
 
+      <Suspense fallback={<SummarySkeleton />}>
+        <NewsYouLearnSection date={selectedDate} />
+      </Suspense>
+
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-extrabold text-duo-ink">News channel videos</h2>
         <Suspense fallback={null}>
@@ -87,6 +93,14 @@ export default async function NewsPage({
       />
     </div>
   );
+}
+
+async function NewsYouLearnSection({ date }: { date?: string }) {
+  const session = await getSession();
+  if (!session?.user) return null;
+  const activeDate = date ?? istDateString();
+  const state = await readNewsYouLearnState(session);
+  return <NewsYouLearnDaily initialState={state} date={activeDate} />;
 }
 
 async function NewsSummarySection({ date }: { date?: string }) {

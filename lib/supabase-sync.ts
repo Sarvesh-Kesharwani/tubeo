@@ -162,6 +162,7 @@ export async function resetSupabaseDailyUsage(): Promise<{ reset: number }> {
         activeDiscoverSearchId: normalized?.activeDiscoverSearchId,
         discoverDraft: normalized?.discoverDraft,
         lastPagePath: normalized?.lastPagePath,
+        newsYouLearn: normalized?.newsYouLearn,
         quota: emptyQuota,
         deepseekQuota: emptyQuota,
         quotaHistory: normalized?.quotaHistory,

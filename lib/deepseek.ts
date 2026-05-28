@@ -147,6 +147,19 @@ export interface VideoTranscriptSummaryInput {
   transcript: string;
 }
 
+export interface YouLearnNewsTranscriptInput {
+  date: string;
+  videoTitle: string;
+  videoUrl: string;
+  transcript: string;
+  userPrompt: string;
+}
+
+export interface YouLearnNewsTranscriptResult {
+  data: unknown;
+  raw: string;
+}
+
 export interface TelegramTubeoIntentInput {
   text: string;
   replyText?: string;
@@ -469,6 +482,48 @@ export async function summarizeTranscriptForCitizen({
   }
 
   return bullets;
+}
+
+const DEFAULT_YOULEARN_NEWS_VIDEO_PROMPT =
+  'Convert this YouLearn transcript into strict JSON with shape {"title":"...","key_points":["..."],"why_it_matters":["..."],"terms":[{"term":"...","meaning":"..."}],"revision_notes":["..."]}. Use Hinglish. Keep it crisp, practical, and exam-friendly.';
+
+export async function summarizeYouLearnNewsTranscript({
+  date,
+  videoTitle,
+  videoUrl,
+  transcript,
+  userPrompt,
+}: YouLearnNewsTranscriptInput): Promise<YouLearnNewsTranscriptResult> {
+  const cleaned = transcript.replace(/\s+/g, ' ').trim();
+  if (!cleaned) {
+    throw new DeepSeekRequestError('YouLearn transcript is empty.', 400);
+  }
+
+  const prompt = userPrompt.trim() || DEFAULT_YOULEARN_NEWS_VIDEO_PROMPT;
+  const system =
+    'You process one daily YouLearn news/current-affairs video transcript for a learner. ' +
+    'Follow the user prompt exactly. Return strict JSON only. No markdown, no preamble. ' +
+    `User prompt: ${prompt}`;
+
+  const user = JSON.stringify({
+    date,
+    videoTitle,
+    videoUrl,
+    transcript: cleaned.slice(0, MAX_TRANSCRIPT_CHARS),
+  });
+
+  const content = await runDeepSeekChat({
+    system,
+    user,
+    maxTokens: 1800,
+    operation: `YouLearn news video: ${date}`,
+  });
+
+  try {
+    return { data: parseJsonPayload(content), raw: content };
+  } catch {
+    return { data: null, raw: content };
+  }
 }
 
 export interface InsightsNewsSummaryInput {

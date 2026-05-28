@@ -13,6 +13,9 @@ import {
   type DiscoverSearchFilters,
   type DiscoverSearchRecord,
   type DiscoveredChannel,
+  type NewsYouLearnState,
+  type NewsYouLearnVideo,
+  type NewsYouLearnVideoSummary,
   type ViewPreferences,
   type VocabItem,
   type VocabMeaningStatus,
@@ -41,6 +44,7 @@ export interface DriveChannelData {
   activeDiscoverSearchId?: string;
   discoverDraft?: Partial<DiscoverSearchFilters>;
   lastPagePath?: string;
+  newsYouLearn?: Partial<NewsYouLearnState>;
   quota?: DailyQuotaUsage;
   deepseekQuota?: DailyQuotaUsage;
   quotaHistory?: DailyQuotaUsageHistory;
@@ -131,6 +135,90 @@ function normalizeVocabs(value: VocabItem[] | undefined): VocabItem[] {
   }
 
   return out;
+}
+
+function normalizeNewsYouLearnVideo(value: unknown): NewsYouLearnVideo | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Partial<NewsYouLearnVideo>;
+  const id = typeof item.id === 'string' ? item.id.trim() : '';
+  const url = typeof item.url === 'string' ? item.url.trim() : '';
+  if (!id || !url) return null;
+
+  return {
+    id,
+    title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : 'YouLearn video',
+    url,
+    thumbnail: typeof item.thumbnail === 'string' && item.thumbnail.trim() ? item.thumbnail.trim() : undefined,
+    durationSec:
+      typeof item.durationSec === 'number' && Number.isFinite(item.durationSec) && item.durationSec > 0
+        ? Math.round(item.durationSec)
+        : 0,
+    contentId: typeof item.contentId === 'string' && item.contentId.trim() ? item.contentId.trim() : undefined,
+    importedAt: typeof item.importedAt === 'string' && item.importedAt.trim() ? item.importedAt : new Date().toISOString(),
+  };
+}
+
+function normalizeNewsYouLearnSummary(value: unknown): NewsYouLearnVideoSummary | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Partial<NewsYouLearnVideoSummary>;
+  const date = typeof item.date === 'string' ? item.date.trim() : '';
+  const videoId = typeof item.videoId === 'string' ? item.videoId.trim() : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !videoId) return null;
+
+  return {
+    date,
+    videoId,
+    videoTitle: typeof item.videoTitle === 'string' && item.videoTitle.trim() ? item.videoTitle.trim() : 'YouLearn video',
+    videoUrl: typeof item.videoUrl === 'string' ? item.videoUrl.trim() : '',
+    thumbnail: typeof item.thumbnail === 'string' && item.thumbnail.trim() ? item.thumbnail.trim() : undefined,
+    data: item.data ?? null,
+    raw: typeof item.raw === 'string' ? item.raw : '',
+    promptHash: typeof item.promptHash === 'string' ? item.promptHash : '',
+    generatedAt: typeof item.generatedAt === 'string' && item.generatedAt.trim() ? item.generatedAt : new Date().toISOString(),
+  };
+}
+
+export function emptyNewsYouLearnState(): NewsYouLearnState {
+  return {
+    sourceUrl: '',
+    importedAt: new Date(0).toISOString(),
+    prompt: '',
+    videos: [],
+    summaries: {},
+  };
+}
+
+function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefined): NewsYouLearnState {
+  if (!value || typeof value !== 'object') return emptyNewsYouLearnState();
+  const seen = new Set<string>();
+  const videos: NewsYouLearnVideo[] = [];
+  for (const raw of Array.isArray(value.videos) ? value.videos : []) {
+    const video = normalizeNewsYouLearnVideo(raw);
+    if (!video || seen.has(video.id)) continue;
+    seen.add(video.id);
+    videos.push(video);
+  }
+
+  const summaries: Record<string, NewsYouLearnVideoSummary> = {};
+  if (value.summaries && typeof value.summaries === 'object') {
+    for (const raw of Object.values(value.summaries)) {
+      const summary = normalizeNewsYouLearnSummary(raw);
+      if (summary) summaries[summary.date] = summary;
+    }
+  }
+
+  const trimmedSummaries: Record<string, NewsYouLearnVideoSummary> = {};
+  for (const key of Object.keys(summaries).sort().reverse().slice(0, 90)) {
+    trimmedSummaries[key] = summaries[key];
+  }
+
+  return {
+    sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl.trim() : '',
+    importedAt: typeof value.importedAt === 'string' && value.importedAt.trim() ? value.importedAt : new Date(0).toISOString(),
+    prompt: typeof value.prompt === 'string' ? value.prompt.slice(0, 8000) : '',
+    videos,
+    summaries: trimmedSummaries,
+  };
 }
 
 function normalizeIgnoredChannels(value: DiscoveredChannel[] | undefined): DiscoveredChannel[] {
@@ -365,6 +453,7 @@ export function normalizeDriveChannelData(data: DriveChannelData | null): DriveS
     activeDiscoverSearchId: data.activeDiscoverSearchId,
     discoverDraft: normalizeDiscoverFilters(data.discoverDraft),
     lastPagePath,
+    newsYouLearn: normalizeNewsYouLearnState(data.newsYouLearn),
     quota: normalizeQuotaUsage(data.quota),
     deepseekQuota: normalizeQuotaUsage(data.deepseekQuota),
     quotaHistory,
@@ -641,6 +730,7 @@ export async function restoreDriveBackup(
     activeDiscoverSearchId: backup.activeDiscoverSearchId,
     discoverDraft: backup.discoverDraft,
     lastPagePath: backup.lastPagePath,
+    newsYouLearn: backup.newsYouLearn,
     quota: backup.quota,
     deepseekQuota: backup.deepseekQuota,
     quotaHistory: backup.quotaHistory,
@@ -717,6 +807,7 @@ export function buildDriveChannelData(store: DriveWriteState): DriveChannelData 
     activeDiscoverSearchId: store.activeDiscoverSearchId,
     discoverDraft: normalizeDiscoverFilters(store.discoverDraft),
     lastPagePath: store.lastPagePath,
+    newsYouLearn: normalizeNewsYouLearnState(store.newsYouLearn),
     quota: normalizedQuota,
     deepseekQuota: normalizedDeepSeekQuota,
     quotaHistory: normalizedQuotaHistory,
@@ -739,6 +830,7 @@ export async function recordDriveQuotaUsage(
     ignoredChannels: [],
     discoverSearches: [],
     discoverDraft: normalizeDiscoverFilters(undefined),
+    newsYouLearn: emptyNewsYouLearnState(),
   },
 ): Promise<DailyQuotaUsage> {
   const normalizedUnits = Math.max(0, Math.ceil(units));
@@ -756,6 +848,7 @@ export async function recordDriveQuotaUsage(
         activeDiscoverSearchId: existing.activeDiscoverSearchId,
         discoverDraft: existing.discoverDraft,
         lastPagePath: existing.lastPagePath,
+        newsYouLearn: existing.newsYouLearn,
       }
     : fallbackStore;
   const quota = normalizeQuotaUsage(existing?.quota);
@@ -777,6 +870,7 @@ export async function recordDriveQuotaUsage(
     activeDiscoverSearchId: baseStore.activeDiscoverSearchId,
     discoverDraft: baseStore.discoverDraft,
     lastPagePath: baseStore.lastPagePath,
+    newsYouLearn: baseStore.newsYouLearn,
     quota: nextQuota,
     deepseekQuota: existing?.deepseekQuota,
     quotaHistory: existing?.quotaHistory,

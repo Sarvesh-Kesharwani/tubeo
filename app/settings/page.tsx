@@ -2,11 +2,13 @@ import { AddChannelForm } from '@/components/AddChannelForm';
 import { AddSpaceForm } from '@/components/AddSpaceForm';
 import { ChannelSettingsRow } from '@/components/ChannelSettingsRow';
 import { DriveRestoreCard } from '@/components/DriveRestoreCard';
+import { NewsYouLearnPromptSettings } from '@/components/NewsYouLearnPromptSettings';
 import { QuotaCard } from '@/components/QuotaCard';
 import { SpaceChannelsList, type SpaceChannelItem } from '@/components/SpaceChannelsList';
 import { SpaceSettingsRow } from '@/components/SpaceSettingsRow';
 import { SpacesManager, type SpaceItem } from '@/components/SpacesManager';
 import { readApiUsageSummaries } from '@/lib/api-usage';
+import { readNewsYouLearnState } from '@/lib/news-youlearn-service';
 import { getSession } from '@/lib/session';
 import {
   getEnvChannelIds,
@@ -42,6 +44,7 @@ export default async function SettingsPage({
   }
 
   const usage = canViewQuota ? await readApiUsageSummaries(params?.quotaDate) : null;
+  const newsYouLearn = session?.user ? await readNewsYouLearnState(session) : null;
 
   const channelMap = new Map(channels.map((channel) => [channel.id, channel]));
 
@@ -99,6 +102,8 @@ export default async function SettingsPage({
       )}
 
       {session?.user && <DriveRestoreCard />}
+
+      {session?.user && <NewsYouLearnPromptSettings initialPrompt={newsYouLearn?.prompt ?? ''} />}
 
       <section className="card p-5 space-y-4">
         <h2 className="font-extrabold text-duo-ink">Add a channel</h2>

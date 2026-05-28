@@ -60,7 +60,8 @@ export async function writeUserSyncState(
       !stateToWrite.quota ||
       !stateToWrite.deepseekQuota ||
       !stateToWrite.quotaHistory ||
-      !stateToWrite.deepseekQuotaHistory
+      !stateToWrite.deepseekQuotaHistory ||
+      !stateToWrite.newsYouLearn
     ) {
       const existing = await readSupabaseSyncState(identity);
       stateToWrite = {
@@ -69,6 +70,7 @@ export async function writeUserSyncState(
         deepseekQuota: stateToWrite.deepseekQuota ?? existing?.deepseekQuota,
         quotaHistory: stateToWrite.quotaHistory ?? existing?.quotaHistory,
         deepseekQuotaHistory: stateToWrite.deepseekQuotaHistory ?? existing?.deepseekQuotaHistory,
+        newsYouLearn: stateToWrite.newsYouLearn ?? existing?.newsYouLearn,
       };
     }
     const state = await writeSupabaseSyncState(identity, stateToWrite);
@@ -88,7 +90,8 @@ export async function writeUserSyncState(
     !stateToWrite.quota ||
     !stateToWrite.deepseekQuota ||
     !stateToWrite.quotaHistory ||
-    !stateToWrite.deepseekQuotaHistory
+    !stateToWrite.deepseekQuotaHistory ||
+    !stateToWrite.newsYouLearn
   ) {
     const existing = await readDriveChannels(accessToken);
     stateToWrite = {
@@ -97,6 +100,7 @@ export async function writeUserSyncState(
       deepseekQuota: stateToWrite.deepseekQuota ?? existing?.deepseekQuota,
       quotaHistory: stateToWrite.quotaHistory ?? existing?.quotaHistory,
       deepseekQuotaHistory: stateToWrite.deepseekQuotaHistory ?? existing?.deepseekQuotaHistory,
+      newsYouLearn: stateToWrite.newsYouLearn ?? existing?.newsYouLearn,
     };
   }
   await writeDriveChannels(accessToken, stateToWrite);

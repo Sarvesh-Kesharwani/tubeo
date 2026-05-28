@@ -88,6 +88,42 @@ export interface VocabItem {
   meaningUpdatedAt: string;
 }
 
+export interface YouLearnTranscriptSegment {
+  index: number;
+  startTime: number;
+  text: string;
+}
+
+export interface NewsYouLearnVideo {
+  id: string;
+  title: string;
+  url: string;
+  thumbnail?: string;
+  durationSec: number;
+  contentId?: string;
+  importedAt: string;
+}
+
+export interface NewsYouLearnVideoSummary {
+  date: string;
+  videoId: string;
+  videoTitle: string;
+  videoUrl: string;
+  thumbnail?: string;
+  data: unknown;
+  raw: string;
+  promptHash: string;
+  generatedAt: string;
+}
+
+export interface NewsYouLearnState {
+  sourceUrl: string;
+  importedAt: string;
+  prompt: string;
+  videos: NewsYouLearnVideo[];
+  summaries: Record<string, NewsYouLearnVideoSummary>;
+}
+
 export function normalizeVocabWord(word: string): string {
   return word.trim().replace(/\s+/g, ' ');
 }
@@ -108,6 +144,7 @@ export interface ChannelPreferenceStore {
   activeDiscoverSearchId?: string;
   discoverDraft?: DiscoverSearchFilters;
   lastPagePath?: string;
+  newsYouLearn?: NewsYouLearnState;
 }
 
 export interface DailyQuotaUsage {
