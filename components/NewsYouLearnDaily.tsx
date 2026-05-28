@@ -223,6 +223,25 @@ function GenericValue({ value }: { value: unknown }) {
   }
 
   if (isRecord(normalized)) {
+    const name = primitiveText(normalized.name);
+    const wants = primitiveText(normalized.wants) || primitiveText(normalized.desire);
+    if (name && wants) {
+      return (
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-2xl border-2 border-duo-border bg-white/80 p-3">
+            <h5 className="mb-2 text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">Name</h5>
+            <p className="text-sm font-semibold leading-relaxed text-duo-ink">{name}</p>
+          </div>
+          <div className="rounded-2xl border-2 border-duo-border bg-white/80 p-3">
+            <h5 className="mb-2 text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">
+              {normalized.wants ? 'Wants' : 'Desire'}
+            </h5>
+            <p className="text-sm font-semibold leading-relaxed text-duo-ink">{wants}</p>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-3">
         {Object.entries(normalized).map(([key, child]) => (
@@ -251,6 +270,14 @@ function LayerHeader({ label, title, description }: { label: string; title: stri
         <p className="text-sm font-semibold leading-relaxed text-duo-mute">{description}</p>
       </div>
     </div>
+  );
+}
+
+function LayerPlaceholder() {
+  return (
+    <p className="rounded-2xl bg-white/70 px-3 py-2 text-sm font-bold text-duo-mute">
+      No structured points found for this layer.
+    </p>
   );
 }
 
@@ -301,7 +328,7 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
     { key: 'layer5', data: layer5, label: 'Layer 5', title: 'Event timeline & dynamics', tone: 'green' },
     { key: 'layer6', data: layer6, label: 'Layer 6', title: 'Outcomes & consequences', tone: 'blue' },
     { key: 'layer7', data: layer7, label: 'Layer 7', title: 'Layer connections', tone: 'yellow' },
-  ].filter((block) => Object.keys(block.data).length > 0);
+  ];
   const extras = Object.fromEntries(
     Object.entries(data).filter(([key, value]) => !known.has(key) && !isRedundantLayerGroup(key, value)),
   );
@@ -331,37 +358,28 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
         )}
       </div>
 
-      {terms.length > 0 && (
-        <section className="rounded-3xl border-2 border-duo-blue/25 bg-duo-blue/10 p-4">
-          <LayerHeader
-            label="Layer 1"
-            title="Terms"
-            description="Important names and ideas from the video."
-          />
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {terms.map((term, index) => (
-              <article key={index} className="rounded-2xl border-2 border-duo-border bg-white p-3 shadow-sm">
-                <h5 className="text-sm font-extrabold text-duo-blueDark">
+      <section className="rounded-3xl border-2 border-duo-blue/25 bg-duo-blue/10 p-4">
+        <LayerHeader
+          label="Layer 1"
+          title="Terms & events"
+          description="Important names, ideas, and sequence from the video."
+        />
+        <div className="mt-4 space-y-3">
+          {terms.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {terms.map((term, index) => (
+                <article key={index} className="rounded-2xl border-2 border-duo-border bg-white p-3 shadow-sm">
+                  <h5 className="text-sm font-extrabold text-duo-blueDark">
                   {primitiveText(term.term) || `Term ${index + 1}`}
                 </h5>
                 <p className="mt-1 text-sm font-semibold leading-relaxed text-duo-ink">
                   {primitiveText(term.definition) || primitiveText(term.meaning) || primitiveText(term.explanation)}
                 </p>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {events.length > 0 && (
-        <section className="rounded-3xl border-2 border-duo-yellow/60 bg-duo-yellow/20 p-4">
-          <LayerHeader
-            label="Timeline"
-            title="Events"
-            description="Sequence to revise quickly."
-          />
-          <div className="mt-4 space-y-3">
-            {events.map((event, index) => (
+                </article>
+              ))}
+            </div>
+          )}
+          {events.length > 0 && events.map((event, index) => (
               <article key={index} className="rounded-2xl bg-white p-3 shadow-sm">
                 <h5 className="text-sm font-extrabold text-duo-ink">
                   {primitiveText(event.event) || primitiveText(event.title) || `Event ${index + 1}`}
@@ -371,17 +389,17 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
                 </p>
               </article>
             ))}
-          </div>
-        </section>
-      )}
+          {terms.length === 0 && events.length === 0 && <LayerPlaceholder />}
+        </div>
+      </section>
 
-      {concepts.length > 0 && (
-        <section className="rounded-3xl border-2 border-duo-green/25 bg-white p-4 shadow-card">
-          <LayerHeader
-            label="Layer 2"
-            title="Concepts"
-            description="Bigger takeaways and connections."
-          />
+      <section className="rounded-3xl border-2 border-duo-green/25 bg-white p-4 shadow-card">
+        <LayerHeader
+          label="Layer 2"
+          title="Concepts"
+          description="Bigger takeaways and connections."
+        />
+        {concepts.length > 0 ? (
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
             {concepts.map((concept, index) => (
               <article key={index} className="rounded-2xl border-2 border-duo-border bg-duo-soft/60 p-3">
@@ -394,8 +412,12 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
               </article>
             ))}
           </div>
-        </section>
-      )}
+        ) : (
+          <div className="mt-4">
+            <LayerPlaceholder />
+          </div>
+        )}
+      </section>
 
       {layerBlocks.map((block) => (
         <section
@@ -414,7 +436,7 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
             description="Formatted from saved processed notes."
           />
           <div className="mt-4">
-            <GenericValue value={block.data} />
+            {Object.keys(block.data).length > 0 ? <GenericValue value={block.data} /> : <LayerPlaceholder />}
           </div>
         </section>
       ))}
