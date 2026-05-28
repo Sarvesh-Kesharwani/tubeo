@@ -4,7 +4,13 @@ import { createHash } from 'crypto';
 import type { Session } from 'next-auth';
 import { emptyNewsYouLearnState } from './drive';
 import { summarizeYouLearnNewsTranscript, type YouLearnNewsTranscriptResult } from './deepseek';
-import { DEFAULT_CHANNEL_SPACE, type ChannelPreferenceStore, type NewsYouLearnState, type NewsYouLearnVideoSummary } from './types';
+import {
+  DEFAULT_CHANNEL_SPACE,
+  type ChannelPreferenceStore,
+  type NewsClipWiseProgress,
+  type NewsYouLearnState,
+  type NewsYouLearnVideoSummary,
+} from './types';
 import { DEFAULT_VIEW_PREFERENCES } from './view-preferences';
 import { readUserSyncState, writeUserSyncState } from './sync-store';
 import {
@@ -64,6 +70,15 @@ function pruneSelectedVideoIds(
 ): NewsYouLearnState['selectedVideoIds'] {
   return Object.fromEntries(
     Object.entries(selectedVideoIds ?? {}).filter(([, videoId]) => videoIds.has(videoId)),
+  );
+}
+
+function pruneClipWiseProgress(
+  clipwiseProgress: NewsYouLearnState['clipwiseProgress'],
+  videoIds: Set<string>,
+): NewsYouLearnState['clipwiseProgress'] {
+  return Object.fromEntries(
+    Object.entries(clipwiseProgress ?? {}).filter(([, progress]) => videoIds.has(progress.videoId)),
   );
 }
 
@@ -132,6 +147,7 @@ export async function importNewsYouLearnSpace(
     videos: mergedVideos,
     summaries: pruneSummaries(state.summaries, new Set(mergedVideos.map((video) => video.id))),
     selectedVideoIds: pruneSelectedVideoIds(state.selectedVideoIds, new Set(mergedVideos.map((video) => video.id))),
+    clipwiseProgress: pruneClipWiseProgress(state.clipwiseProgress, new Set(mergedVideos.map((video) => video.id))),
   });
 }
 
@@ -146,6 +162,7 @@ export async function removeNewsYouLearnVideo(
     videos,
     summaries: pruneSummaries(state.summaries, new Set(videos.map((video) => video.id))),
     selectedVideoIds: pruneSelectedVideoIds(state.selectedVideoIds, new Set(videos.map((video) => video.id))),
+    clipwiseProgress: pruneClipWiseProgress(state.clipwiseProgress, new Set(videos.map((video) => video.id))),
   });
 }
 
@@ -178,7 +195,70 @@ export async function clearNewsYouLearnVideos(
     videos: [],
     summaries: {},
     selectedVideoIds: {},
+    clipwiseProgress: {},
   });
+}
+
+function normalizeClipDone(done: unknown): number[] {
+  return [
+    ...new Set(
+      (Array.isArray(done) ? done : [])
+        .filter((index) => Number.isInteger(index) && index >= 0)
+        .map((index) => Math.round(index)),
+    ),
+  ].sort((a, b) => a - b).slice(0, 10000);
+}
+
+export async function saveNewsYouLearnClipWiseProgress(
+  session: Session | null | undefined,
+  input: {
+    videoId: string;
+    clipSeconds: number;
+    done: number[];
+    lastClipIndex: number;
+    completedAt?: string;
+  },
+): Promise<{ state: NewsYouLearnState; progress: NewsClipWiseProgress }> {
+  const state = await readNewsYouLearnState(session);
+  const videoId = input.videoId.trim();
+  const video = state.videos.find((item) => item.id === videoId);
+  if (!video) throw new Error('Choose an imported YouLearn video.');
+
+  const clipSeconds = Number.isFinite(input.clipSeconds) && input.clipSeconds > 0
+    ? Math.min(3600, Math.round(input.clipSeconds))
+    : 120;
+  const totalClips = Math.max(1, Math.ceil(Math.max(video.durationSec || clipSeconds, clipSeconds) / clipSeconds));
+  const done = normalizeClipDone(input.done).filter((index) => index < totalClips);
+  const lastClipIndex = Number.isFinite(input.lastClipIndex)
+    ? Math.min(Math.max(Math.round(input.lastClipIndex), 0), totalClips - 1)
+    : 0;
+  const key = `${videoId}:${clipSeconds}`;
+  const previous = state.clipwiseProgress?.[key];
+  const completedAt =
+    previous?.completedAt ||
+    (typeof input.completedAt === 'string' && input.completedAt.trim() ? input.completedAt : undefined) ||
+    (done.length >= totalClips ? new Date().toISOString() : undefined);
+  const progress: NewsClipWiseProgress = {
+    videoId,
+    clipSeconds,
+    done,
+    lastClipIndex,
+    completedAt,
+    updatedAt: new Date().toISOString(),
+  };
+  const videos = completedAt
+    ? state.videos.map((item) => (item.id === videoId ? { ...item, completedAt: item.completedAt || completedAt } : item))
+    : state.videos;
+  const next = await writeNewsYouLearnState(session, {
+    ...state,
+    videos,
+    clipwiseProgress: {
+      ...(state.clipwiseProgress ?? {}),
+      [key]: progress,
+    },
+  });
+
+  return { state: next, progress: next.clipwiseProgress?.[key] ?? progress };
 }
 
 export async function processDailyNewsYouLearnVideo(

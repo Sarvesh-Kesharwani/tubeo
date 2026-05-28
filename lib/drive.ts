@@ -13,6 +13,7 @@ import {
   type DiscoverSearchFilters,
   type DiscoverSearchRecord,
   type DiscoveredChannel,
+  type NewsClipWiseProgress,
   type NewsYouLearnState,
   type NewsYouLearnVideo,
   type NewsYouLearnVideoSummary,
@@ -190,6 +191,7 @@ export function emptyNewsYouLearnState(): NewsYouLearnState {
     videos: [],
     summaries: {},
     selectedVideoIds: {},
+    clipwiseProgress: {},
   };
 }
 
@@ -205,6 +207,48 @@ function normalizeNewsYouLearnSelections(value: unknown, videoIds: Set<string>):
     if (/^\d{4}-\d{2}-\d{2}$/.test(date) && videoIds.has(videoId)) {
       out[date] = videoId;
     }
+  }
+  return out;
+}
+
+function normalizeNewsClipWiseProgress(value: unknown, videoIds: Set<string>): Record<string, NewsClipWiseProgress> {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<string, NewsClipWiseProgress> = {};
+  for (const raw of Object.values(value as Record<string, unknown>)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Partial<NewsClipWiseProgress>;
+    const videoId = typeof item.videoId === 'string' ? item.videoId.trim() : '';
+    if (!videoId || !videoIds.has(videoId)) continue;
+    const clipSeconds =
+      typeof item.clipSeconds === 'number' && Number.isFinite(item.clipSeconds) && item.clipSeconds > 0
+        ? Math.min(3600, Math.round(item.clipSeconds))
+        : 120;
+    const done = [
+      ...new Set(
+        (Array.isArray(item.done) ? item.done : [])
+          .filter((index) => Number.isInteger(index) && index >= 0)
+          .map((index) => Math.round(index)),
+      ),
+    ].sort((a, b) => a - b).slice(0, 10000);
+    const lastClipIndex =
+      typeof item.lastClipIndex === 'number' && Number.isFinite(item.lastClipIndex) && item.lastClipIndex >= 0
+        ? Math.round(item.lastClipIndex)
+        : 0;
+    const key = `${videoId}:${clipSeconds}`;
+    out[key] = {
+      videoId,
+      clipSeconds,
+      done,
+      lastClipIndex,
+      completedAt:
+        typeof item.completedAt === 'string' && item.completedAt.trim()
+          ? item.completedAt
+          : undefined,
+      updatedAt:
+        typeof item.updatedAt === 'string' && item.updatedAt.trim()
+          ? item.updatedAt
+          : new Date().toISOString(),
+    };
   }
   return out;
 }
@@ -241,6 +285,7 @@ function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefine
     videos,
     summaries: trimmedSummaries,
     selectedVideoIds: normalizeNewsYouLearnSelections(value.selectedVideoIds, videoIds),
+    clipwiseProgress: normalizeNewsClipWiseProgress(value.clipwiseProgress, videoIds),
   };
 }
 

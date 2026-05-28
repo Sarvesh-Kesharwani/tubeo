@@ -117,6 +117,15 @@ export interface NewsYouLearnVideoSummary {
   generatedAt: string;
 }
 
+export interface NewsClipWiseProgress {
+  videoId: string;
+  clipSeconds: number;
+  done: number[];
+  lastClipIndex: number;
+  completedAt?: string;
+  updatedAt: string;
+}
+
 export interface NewsYouLearnState {
   sourceUrl: string;
   importedAt: string;
@@ -124,6 +133,7 @@ export interface NewsYouLearnState {
   videos: NewsYouLearnVideo[];
   summaries: Record<string, NewsYouLearnVideoSummary>;
   selectedVideoIds?: Record<string, string>;
+  clipwiseProgress?: Record<string, NewsClipWiseProgress>;
 }
 
 export function normalizeVocabWord(word: string): string {

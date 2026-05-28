@@ -1,18 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { NewsYouLearnState, NewsYouLearnVideo } from '@/lib/types';
+import type { NewsClipWiseProgress, NewsYouLearnState, NewsYouLearnVideo } from '@/lib/types';
 
 const CLIP_SECONDS = 120;
-const STORAGE_KEY = 'tubeo_news_clipwise_progress_v1';
 
-interface ClipProgress {
-  done: number[];
-  lastClipIndex: number;
-  completedAt?: string;
-}
-
-type ProgressStore = Record<string, ClipProgress>;
+type ProgressStore = Record<string, NewsClipWiseProgress>;
 
 function pickDaily(videos: NewsYouLearnVideo[], date: string): NewsYouLearnVideo | null {
   if (videos.length === 0) return null;
@@ -23,20 +16,6 @@ function pickDaily(videos: NewsYouLearnVideo[], date: string): NewsYouLearnVideo
 
 function progressKey(videoId: string): string {
   return `${videoId}:${CLIP_SECONDS}`;
-}
-
-function readProgress(): ProgressStore {
-  if (typeof window === 'undefined') return {};
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '{}') as ProgressStore;
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeProgress(value: ProgressStore) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
 }
 
 function formatTime(seconds: number): string {
@@ -74,15 +53,15 @@ export function NewsClipWisePlayer({
     () => initialState.videos.find((video) => video.id === selectedVideoId) ?? dailyVideo,
     [dailyVideo, initialState.videos, selectedVideoId],
   );
-  const [progress, setProgress] = useState<ProgressStore>({});
+  const [progress, setProgress] = useState<ProgressStore>(initialState.clipwiseProgress ?? {});
   const [duration, setDuration] = useState(selectedVideo?.durationSec || 0);
   const [activeClipIndex, setActiveClipIndex] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    setProgress(readProgress());
-  }, []);
+    setProgress(initialState.clipwiseProgress ?? {});
+  }, [initialState.clipwiseProgress]);
 
   useEffect(() => {
     if (!selectedVideo) return;
@@ -102,7 +81,13 @@ export function NewsClipWisePlayer({
 
   const video = selectedVideo;
   const key = progressKey(video.id);
-  const saved = progress[key] ?? { done: [], lastClipIndex: 0 };
+  const saved = progress[key] ?? {
+    videoId: video.id,
+    clipSeconds: CLIP_SECONDS,
+    done: [],
+    lastClipIndex: 0,
+    updatedAt: new Date(0).toISOString(),
+  };
   const done = new Set(saved.done);
   const totalClips = clipCount(duration || video.durationSec);
   const activeClip = Math.min(activeClipIndex, totalClips - 1);
@@ -110,25 +95,28 @@ export function NewsClipWisePlayer({
   const doneCount = done.size;
   const pct = Math.round((doneCount / totalClips) * 100);
 
-  function save(next: ClipProgress) {
-    const nextStore = { ...progress, [key]: next };
-    setProgress(nextStore);
-    writeProgress(nextStore);
-  }
-
-  async function completeVideo(nextDone: Set<number>) {
-    if (nextDone.size < totalClips || saved.completedAt) return;
-    const completedAt = new Date().toISOString();
-    save({ done: [...nextDone], lastClipIndex: activeClip, completedAt });
+  async function save(next: NewsClipWiseProgress) {
+    setProgress((current) => ({ ...current, [progressKey(next.videoId)]: next }));
+    setStatus('Syncing...');
     try {
-      await fetch('/api/news/youlearn/videos', {
+      const res = await fetch('/api/news/youlearn/clipwise', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoId: video.id, completed: true }),
+        body: JSON.stringify({
+          videoId: next.videoId,
+          clipSeconds: next.clipSeconds,
+          done: next.done,
+          lastClipIndex: next.lastClipIndex,
+          completedAt: next.completedAt,
+        }),
       });
-      setStatus('Video complete');
+      const data = (await res.json()) as { ok?: boolean; progress?: NewsClipWiseProgress; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Could not sync ClipWise progress.');
+      const synced = data.progress ?? next;
+      setProgress((current) => ({ ...current, [progressKey(synced.videoId)]: synced }));
+      setStatus(synced.completedAt ? 'Video complete' : 'Synced');
     } catch {
-      setStatus('Saved locally');
+      setStatus('Sync failed');
     }
   }
 
@@ -136,16 +124,30 @@ export function NewsClipWisePlayer({
     const nextDone = new Set(saved.done);
     nextDone.add(index);
     const nextIndex = Math.min(index + 1, totalClips - 1);
-    save({ ...saved, done: [...nextDone], lastClipIndex: nextIndex });
+    const completedAt = nextDone.size >= totalClips ? saved.completedAt || new Date().toISOString() : saved.completedAt;
+    void save({
+      videoId: video.id,
+      clipSeconds: CLIP_SECONDS,
+      done: [...nextDone].sort((a, b) => a - b),
+      lastClipIndex: nextIndex,
+      completedAt,
+      updatedAt: new Date().toISOString(),
+    });
     setActiveClipIndex(nextIndex);
-    void completeVideo(nextDone);
   }
 
   function seekClip(index: number) {
     const next = Math.min(Math.max(index, 0), totalClips - 1);
     const nextBounds = clipBounds(next, duration || video.durationSec);
     setActiveClipIndex(next);
-    save({ ...saved, lastClipIndex: next });
+    void save({
+      videoId: video.id,
+      clipSeconds: CLIP_SECONDS,
+      done: saved.done,
+      lastClipIndex: next,
+      completedAt: saved.completedAt,
+      updatedAt: new Date().toISOString(),
+    });
     if (videoRef.current) {
       videoRef.current.currentTime = nextBounds.start;
       void videoRef.current.play().catch(() => undefined);
