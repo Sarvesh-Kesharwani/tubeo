@@ -1,0 +1,283 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { NewsYouLearnState, NewsYouLearnVideo } from '@/lib/types';
+
+const CLIP_SECONDS = 120;
+const STORAGE_KEY = 'tubeo_news_clipwise_progress_v1';
+
+interface ClipProgress {
+  done: number[];
+  lastClipIndex: number;
+  completedAt?: string;
+}
+
+type ProgressStore = Record<string, ClipProgress>;
+
+function pickDaily(videos: NewsYouLearnVideo[], date: string): NewsYouLearnVideo | null {
+  if (videos.length === 0) return null;
+  const parsed = Date.parse(`${date}T00:00:00.000Z`);
+  const days = Number.isFinite(parsed) ? Math.floor(parsed / 86_400_000) : 0;
+  return videos[Math.abs(days) % videos.length] ?? null;
+}
+
+function progressKey(videoId: string): string {
+  return `${videoId}:${CLIP_SECONDS}`;
+}
+
+function readProgress(): ProgressStore {
+  if (typeof window === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '{}') as ProgressStore;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeProgress(value: ProgressStore) {
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+}
+
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  if (mins < 60) return `${mins}:${String(secs).padStart(2, '0')}`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}:${String(mins % 60).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function clipCount(duration: number): number {
+  return Math.max(1, Math.ceil(Math.max(duration, CLIP_SECONDS) / CLIP_SECONDS));
+}
+
+function clipBounds(index: number, duration: number) {
+  const safeDuration = Math.max(duration, CLIP_SECONDS);
+  const start = index * CLIP_SECONDS;
+  const end = Math.min((index + 1) * CLIP_SECONDS, safeDuration);
+  return { start, end, duration: Math.max(1, end - start) };
+}
+
+export function NewsClipWisePlayer({
+  initialState,
+  date,
+}: {
+  initialState: NewsYouLearnState;
+  date: string;
+}) {
+  const dailyVideo = useMemo(() => pickDaily(initialState.videos, date), [initialState.videos, date]);
+  const [selectedVideoId, setSelectedVideoId] = useState(
+    initialState.selectedVideoIds?.[date] || dailyVideo?.id || initialState.videos[0]?.id || '',
+  );
+  const selectedVideo = useMemo(
+    () => initialState.videos.find((video) => video.id === selectedVideoId) ?? dailyVideo,
+    [dailyVideo, initialState.videos, selectedVideoId],
+  );
+  const [progress, setProgress] = useState<ProgressStore>({});
+  const [duration, setDuration] = useState(selectedVideo?.durationSec || 0);
+  const [activeClipIndex, setActiveClipIndex] = useState(0);
+  const [status, setStatus] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    setProgress(readProgress());
+  }, []);
+
+  useEffect(() => {
+    if (!selectedVideo) return;
+    const key = progressKey(selectedVideo.id);
+    setDuration(selectedVideo.durationSec || 0);
+    setActiveClipIndex(progress[key]?.lastClipIndex ?? 0);
+    setStatus(null);
+  }, [progress, selectedVideo]);
+
+  if (!selectedVideo) {
+    return (
+      <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-6 text-sm font-bold text-duo-mute">
+        No YouLearn videos imported yet.
+      </div>
+    );
+  }
+
+  const video = selectedVideo;
+  const key = progressKey(video.id);
+  const saved = progress[key] ?? { done: [], lastClipIndex: 0 };
+  const done = new Set(saved.done);
+  const totalClips = clipCount(duration || video.durationSec);
+  const activeClip = Math.min(activeClipIndex, totalClips - 1);
+  const bounds = clipBounds(activeClip, duration || video.durationSec);
+  const doneCount = done.size;
+  const pct = Math.round((doneCount / totalClips) * 100);
+
+  function save(next: ClipProgress) {
+    const nextStore = { ...progress, [key]: next };
+    setProgress(nextStore);
+    writeProgress(nextStore);
+  }
+
+  async function completeVideo(nextDone: Set<number>) {
+    if (nextDone.size < totalClips || saved.completedAt) return;
+    const completedAt = new Date().toISOString();
+    save({ done: [...nextDone], lastClipIndex: activeClip, completedAt });
+    try {
+      await fetch('/api/news/youlearn/videos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: video.id, completed: true }),
+      });
+      setStatus('Video complete');
+    } catch {
+      setStatus('Saved locally');
+    }
+  }
+
+  function completeClip(index = activeClip) {
+    const nextDone = new Set(saved.done);
+    nextDone.add(index);
+    const nextIndex = Math.min(index + 1, totalClips - 1);
+    save({ ...saved, done: [...nextDone], lastClipIndex: nextIndex });
+    setActiveClipIndex(nextIndex);
+    void completeVideo(nextDone);
+  }
+
+  function seekClip(index: number) {
+    const next = Math.min(Math.max(index, 0), totalClips - 1);
+    const nextBounds = clipBounds(next, duration || video.durationSec);
+    setActiveClipIndex(next);
+    save({ ...saved, lastClipIndex: next });
+    if (videoRef.current) {
+      videoRef.current.currentTime = nextBounds.start;
+      void videoRef.current.play().catch(() => undefined);
+    }
+  }
+
+  function onTimeUpdate() {
+    const current = videoRef.current?.currentTime ?? 0;
+    const nextIndex = Math.min(Math.floor(current / CLIP_SECONDS), totalClips - 1);
+    if (nextIndex !== activeClip) setActiveClipIndex(nextIndex);
+    const currentBounds = clipBounds(nextIndex, duration || video.durationSec);
+    if (!done.has(nextIndex) && current - currentBounds.start >= currentBounds.duration * 0.9) {
+      completeClip(nextIndex);
+    }
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-extrabold text-duo-ink">ClipWise practice</h2>
+          <p className="mt-1 text-sm font-semibold text-duo-mute">2 min clips from imported YouLearn videos.</p>
+        </div>
+        <a
+          href="https://clipwise-one.vercel.app/player/mpp62zin56vjlgq54"
+          target="_blank"
+          rel="noreferrer"
+          className="btn-duo bg-white text-duo-blueDark shadow-card"
+        >
+          Open ClipWise
+        </a>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
+        <aside className="card p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="chip cursor-default text-duo-blueDark">2 min clips</span>
+            <span className="text-xs font-extrabold text-duo-mute">{doneCount}/{totalClips} complete</span>
+          </div>
+          <div className="mb-4 h-3 overflow-hidden rounded-full bg-duo-soft">
+            <div className="h-full rounded-full bg-duo-green transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+            {initialState.videos.map((video) => {
+              const selected = video.id === selectedVideo.id;
+              return (
+                <button
+                  key={video.id}
+                  type="button"
+                  className={`flex w-full items-center gap-3 rounded-2xl border-2 p-2 text-left transition-colors ${
+                    selected ? 'border-duo-blue bg-duo-blue/10' : 'border-duo-border bg-white hover:bg-duo-soft'
+                  }`}
+                  onClick={() => setSelectedVideoId(video.id)}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={video.thumbnail || '/icon.svg'} alt="" className="h-12 w-16 rounded-xl bg-duo-ink object-cover" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-extrabold text-duo-ink">{video.title}</span>
+                    <span className="text-[11px] font-extrabold text-duo-mute">
+                      {video.durationSec ? formatTime(video.durationSec) : 'Duration on play'}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        <div className="space-y-3">
+          <article className="card overflow-hidden">
+            <video
+              ref={videoRef}
+              controls
+              preload="metadata"
+              poster={video.thumbnail}
+              src={video.url}
+              className="aspect-video w-full bg-duo-ink object-cover"
+              onLoadedMetadata={(event) => setDuration(Math.round(event.currentTarget.duration || video.durationSec || 0))}
+              onTimeUpdate={onTimeUpdate}
+            />
+            <div className="space-y-3 p-4">
+              <div className="flex flex-wrap gap-2">
+                <span className="chip cursor-default">Clip {activeClip + 1} of {totalClips}</span>
+                <span className="chip cursor-default">
+                  {formatTime(bounds.start)} - {formatTime(bounds.end)}
+                </span>
+                {saved.completedAt && <span className="chip cursor-default text-duo-greenDark">Completed</span>}
+                {status && <span className="chip cursor-default text-duo-blueDark">{status}</span>}
+              </div>
+              <h3 className="text-base font-extrabold leading-tight text-duo-ink">{video.title}</h3>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn-duo bg-duo-blue text-white shadow-duoBlue" onClick={() => seekClip(activeClip)}>
+                  Play clip
+                </button>
+                <button type="button" className="btn-duo bg-duo-green text-white shadow-duoGreen" onClick={() => completeClip()}>
+                  Complete clip
+                </button>
+              </div>
+            </div>
+          </article>
+
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: totalClips }).map((_, index) => {
+              const itemBounds = clipBounds(index, duration || video.durationSec);
+              const complete = done.has(index);
+              const selected = index === activeClip;
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  className={`rounded-2xl border-2 p-3 text-left shadow-card transition-transform active:translate-y-[2px] ${
+                    complete
+                      ? 'border-duo-green bg-duo-green text-white'
+                      : selected
+                        ? 'border-duo-blue bg-duo-blue text-white'
+                        : 'border-duo-border bg-white text-duo-ink hover:bg-duo-soft'
+                  }`}
+                  onClick={() => seekClip(index)}
+                >
+                  <span className="block text-xs font-extrabold uppercase">Clip {index + 1}</span>
+                  <span className="mt-1 block text-sm font-bold">
+                    {formatTime(itemBounds.start)} - {formatTime(itemBounds.end)}
+                  </span>
+                  <span className="mt-2 block text-xs font-extrabold opacity-80">
+                    {complete ? 'Complete' : selected ? 'Playing' : 'Ready'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
