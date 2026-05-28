@@ -44,6 +44,21 @@ export default async function NewsPage({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">News</h1>
           <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="https://www.duolingo.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="btn-duo bg-white text-duo-greenDark shadow-card"
+              title="Open Duolingo"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="https://www.duolingo.com/favicon.ico"
+                alt=""
+                className="h-5 w-5 rounded-md"
+              />
+              Duolingo
+            </a>
             <Suspense fallback={null}>
               <NewsPromptSection />
             </Suspense>
