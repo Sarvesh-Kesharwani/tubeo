@@ -11,7 +11,6 @@ Curated YouTube feed from a whitelist of channels. Duolingo-inspired UI.
 
 ## Features (MVP)
 
-- **Mixed feed** (`/`) — all whitelisted channels merged, newest first.
 - **Channels view** (`/channels`) — each channel as its own row.
 - **Time filters** — 24h / 3d / 7d / 30d via `?range=1d|3d|7d|30d`.
 - Whitelist enforced server-side (only videos from listed channel IDs ever reach the UI).
@@ -34,11 +33,11 @@ Find a channel ID: open any channel → View Source → search `"channelId":"UC.
 ```
 app/
   layout.tsx          root shell + header + tabs
-  page.tsx            Mixed feed (RSC)
+  page.tsx            redirects to News
   channels/page.tsx   Channel-grouped feed (RSC)
   globals.css         Tailwind + Duolingo design tokens
 components/
-  NavTabs.tsx         Mixed / Channels switch
+  NavTabs.tsx         top-level app navigation
   TimeFilter.tsx      range chips
   VideoCard.tsx       thumbnail + meta
   ChannelRow.tsx      row of videos per channel

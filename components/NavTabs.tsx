@@ -5,7 +5,6 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 const TABS = [
-  { href: '/', label: 'Mixed', emoji: 'TV' },
   { href: '/news', label: 'News', emoji: 'NW' },
   { href: '/channels', label: 'Channels', emoji: 'CH' },
   { href: '/discover', label: 'Discover', emoji: 'SR' },
