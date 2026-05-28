@@ -25,6 +25,10 @@ function normalizeList(value: unknown): string[] {
   return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
 function parseRawJson(raw: string): unknown {
   const cleaned = raw
     .trim()
@@ -43,6 +47,20 @@ function parseRawJson(raw: string): unknown {
     return parsed;
   }
 
+  const candidates = [
+    cleaned,
+    cleaned.slice(cleaned.indexOf('{'), cleaned.lastIndexOf('}') + 1),
+    cleaned.slice(cleaned.indexOf('['), cleaned.lastIndexOf(']') + 1),
+  ].filter((candidate) => candidate.trim().length > 1);
+
+  for (const candidate of candidates) {
+    try {
+      return parseCandidate(candidate.trim());
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
   try {
     return parseCandidate(cleaned);
   } catch {
@@ -59,6 +77,7 @@ function parseRawJson(raw: string): unknown {
 function titleFromKey(key: string): string {
   return key
     .replace(/[_-]+/g, ' ')
+    .replace(/layer(\d+)/i, 'Layer $1')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -67,6 +86,25 @@ function primitiveText(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return '';
+}
+
+function parseSummaryData(summary: NewsYouLearnVideoSummary): unknown {
+  if (isRecord(summary.data)) return summary.data;
+  if (typeof summary.data === 'string') {
+    const parsed = parseRawJson(summary.data);
+    if (parsed) return parsed;
+  }
+  return parseRawJson(summary.raw);
+}
+
+function recordList(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord);
+}
+
+function textList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => primitiveText(item)).filter(Boolean).slice(0, 12);
 }
 
 function GenericValue({ value }: { value: unknown }) {
@@ -107,6 +145,123 @@ function GenericValue({ value }: { value: unknown }) {
   }
 
   return null;
+}
+
+function LayerHeader({ label, title, description }: { label: string; title: string; description: string }) {
+  return (
+    <div className="flex flex-wrap items-start gap-3">
+      <span className="rounded-full bg-white px-3 py-1 text-xs font-extrabold uppercase tracking-wide text-duo-blueDark shadow-sm">
+        {label}
+      </span>
+      <div>
+        <h4 className="text-base font-extrabold text-duo-ink">{title}</h4>
+        <p className="text-sm font-semibold leading-relaxed text-duo-mute">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>; fallbackTitle: string }) {
+  const layer0 = isRecord(data.layer0) ? data.layer0 : {};
+  const layer1 = isRecord(data.layer1) ? data.layer1 : {};
+  const layer2 = isRecord(data.layer2) ? data.layer2 : {};
+  const known = new Set(['layer0', 'layer1', 'layer2']);
+  const roadmap = textList(layer0.roadmap);
+  const terms = recordList(layer1.terms);
+  const events = recordList(layer1.events);
+  const concepts = recordList(layer2.concepts);
+  const extras = Object.fromEntries(Object.entries(data).filter(([key]) => !known.has(key)));
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-3xl border-2 border-duo-green/30 bg-gradient-to-br from-duo-green/15 to-white p-4 shadow-card">
+        <p className="text-xs font-extrabold uppercase tracking-wide text-duo-greenDark">Processed notes</p>
+        <h3 className="mt-1 text-xl font-extrabold leading-tight text-duo-ink">
+          {primitiveText(layer0.goal) || primitiveText(data.title) || fallbackTitle}
+        </h3>
+        {roadmap.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {roadmap.map((step, index) => (
+              <span
+                key={`${step}-${index}`}
+                className="rounded-full border-2 border-duo-green/25 bg-white px-3 py-1.5 text-xs font-extrabold text-duo-greenDark shadow-sm"
+              >
+                {index + 1}. {step}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {terms.length > 0 && (
+        <section className="rounded-3xl border-2 border-duo-blue/25 bg-duo-blue/10 p-4">
+          <LayerHeader
+            label="Layer 1"
+            title="Terms"
+            description="Important names and ideas from the video."
+          />
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {terms.map((term, index) => (
+              <article key={index} className="rounded-2xl border-2 border-duo-border bg-white p-3 shadow-sm">
+                <h5 className="text-sm font-extrabold text-duo-blueDark">
+                  {primitiveText(term.term) || `Term ${index + 1}`}
+                </h5>
+                <p className="mt-1 text-sm font-semibold leading-relaxed text-duo-ink">
+                  {primitiveText(term.definition) || primitiveText(term.meaning) || primitiveText(term.explanation)}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {events.length > 0 && (
+        <section className="rounded-3xl border-2 border-duo-yellow/60 bg-duo-yellow/20 p-4">
+          <LayerHeader
+            label="Timeline"
+            title="Events"
+            description="Sequence to revise quickly."
+          />
+          <div className="mt-4 space-y-3">
+            {events.map((event, index) => (
+              <article key={index} className="rounded-2xl bg-white p-3 shadow-sm">
+                <h5 className="text-sm font-extrabold text-duo-ink">
+                  {primitiveText(event.event) || primitiveText(event.title) || `Event ${index + 1}`}
+                </h5>
+                <p className="mt-1 text-sm font-semibold leading-relaxed text-duo-mute">
+                  {primitiveText(event.description) || primitiveText(event.detail) || primitiveText(event.explanation)}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {concepts.length > 0 && (
+        <section className="rounded-3xl border-2 border-duo-green/25 bg-white p-4 shadow-card">
+          <LayerHeader
+            label="Layer 2"
+            title="Concepts"
+            description="Bigger takeaways and connections."
+          />
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {concepts.map((concept, index) => (
+              <article key={index} className="rounded-2xl border-2 border-duo-border bg-duo-soft/60 p-3">
+                <h5 className="text-sm font-extrabold text-duo-greenDark">
+                  {primitiveText(concept.concept) || primitiveText(concept.title) || `Concept ${index + 1}`}
+                </h5>
+                <p className="mt-1 text-sm font-semibold leading-relaxed text-duo-ink">
+                  {primitiveText(concept.explanation) || primitiveText(concept.definition) || primitiveText(concept.detail)}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {Object.keys(extras).length > 0 && <GenericSummary data={extras} />}
+    </div>
+  );
 }
 
 function GenericSummary({ data }: { data: Record<string, unknown> }) {
@@ -154,12 +309,16 @@ function TextSummary({ raw }: { raw: string }) {
 }
 
 function SummaryBlock({ summary }: { summary: NewsYouLearnVideoSummary }) {
-  const data = summary.data && typeof summary.data === 'object' ? summary.data : parseRawJson(summary.raw);
-  if (!data || typeof data !== 'object') {
+  const data = parseSummaryData(summary);
+  if (!isRecord(data)) {
     return <TextSummary raw={summary.raw} />;
   }
 
-  const obj = data as Record<string, unknown>;
+  const obj = data;
+  if (isRecord(obj.layer0) || isRecord(obj.layer1) || isRecord(obj.layer2)) {
+    return <LayeredSummary data={obj} fallbackTitle={summary.videoTitle} />;
+  }
+
   const title = typeof obj.title === 'string' ? obj.title : summary.videoTitle;
   const keyPoints = normalizeList(obj.key_points ?? obj.keyPoints ?? obj.summary);
   const impacts = normalizeList(obj.why_it_matters ?? obj.whyItMatters ?? obj.impact);

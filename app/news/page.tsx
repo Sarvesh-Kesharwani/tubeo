@@ -1,4 +1,4 @@
-import { Suspense } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import { ChannelRow } from '@/components/ChannelRow';
 import { DurationFilter } from '@/components/DurationFilter';
 import { EmptyState } from '@/components/EmptyState';
@@ -41,63 +41,84 @@ export default async function NewsPage({
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">News</h1>
-          <div className="flex flex-wrap items-center gap-2">
-            <a
-              href="https://www.duolingo.com/"
-              target="_blank"
-              rel="noreferrer"
-              className="btn-duo bg-white text-duo-greenDark shadow-card"
-              title="Open Duolingo"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="https://d35aaqx5ub95lt.cloudfront.net/favicon.ico"
-                alt=""
-                className="h-5 w-5 rounded-md"
-              />
-              Duolingo
-            </a>
-            <Suspense fallback={null}>
-              <NewsPromptSection />
-            </Suspense>
-          </div>
-        </div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink">News</h1>
         <p className="text-sm text-duo-mute">
           Today's UPSC current-affairs digest from InsightsOnIndia plus videos from channels you've assigned to the
           &quot;{NEWS_SPACE}&quot; space.
         </p>
       </section>
 
-      <Suspense fallback={null}>
-        <NewsHistorySection date={selectedDate} />
-      </Suspense>
+      <NewsSectionBlock
+        title="Daily streak"
+        description="Open Duolingo first, then move through the news stack."
+        tone="green"
+      >
+        <a
+          href="https://www.duolingo.com/"
+          target="_blank"
+          rel="noreferrer"
+          className="btn-duo bg-white text-duo-greenDark shadow-card"
+          title="Open Duolingo"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://d35aaqx5ub95lt.cloudfront.net/favicon.ico"
+            alt=""
+            className="h-5 w-5 rounded-md"
+          />
+          Duolingo
+        </a>
+      </NewsSectionBlock>
 
-      <Suspense fallback={<SummarySkeleton />}>
-        <NewsSummarySection date={selectedDate} />
-      </Suspense>
-
-      <Suspense fallback={<SummarySkeleton />}>
-        <NewsYouLearnSection date={selectedDate} />
-      </Suspense>
-
-      <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-extrabold text-duo-ink">News channel videos</h2>
+      <NewsSectionBlock
+        title="Insights digest"
+        description="Fetch and review the InsightsOnIndia summary for the selected day."
+        action={
+          <Suspense fallback={null}>
+            <NewsPromptSection />
+          </Suspense>
+        }
+        tone="blue"
+      >
         <Suspense fallback={null}>
-          <TimeFilter active={range} />
+          <NewsHistorySection date={selectedDate} />
         </Suspense>
-        <Suspense fallback={null}>
-          <MediaTypeFilter active={media} />
+        <Suspense fallback={<SummarySkeleton />}>
+          <NewsSummarySection date={selectedDate} />
         </Suspense>
-        <Suspense fallback={null}>
-          <DurationFilter active={duration} />
-        </Suspense>
-      </section>
+      </NewsSectionBlock>
 
-      <Suspense key={`${range}:${media}:${duration}`} fallback={<VideosSkeleton />}>
-        <NewsVideos range={range} media={media} duration={duration} />
-      </Suspense>
+      <NewsSectionBlock
+        title="YouLearn video"
+        description="One daily YouLearn video with transcript notes and completion tracking."
+        tone="yellow"
+      >
+        <Suspense fallback={<SummarySkeleton />}>
+          <NewsYouLearnSection date={selectedDate} />
+        </Suspense>
+      </NewsSectionBlock>
+
+      <NewsSectionBlock
+        title="YouTube channels"
+        description={`Videos from channels assigned to the "${NEWS_SPACE}" space.`}
+        tone="green"
+      >
+        <section className="flex flex-col gap-3">
+          <Suspense fallback={null}>
+            <TimeFilter active={range} />
+          </Suspense>
+          <Suspense fallback={null}>
+            <MediaTypeFilter active={media} />
+          </Suspense>
+          <Suspense fallback={null}>
+            <DurationFilter active={duration} />
+          </Suspense>
+        </section>
+
+        <Suspense key={`${range}:${media}:${duration}`} fallback={<VideosSkeleton />}>
+          <NewsVideos range={range} media={media} duration={duration} />
+        </Suspense>
+      </NewsSectionBlock>
 
       <ViewPreferenceTracker
         page="channels"
@@ -110,10 +131,51 @@ export default async function NewsPage({
   );
 }
 
+function NewsSectionBlock({
+  title,
+  description,
+  action,
+  tone = 'green',
+  children,
+}: {
+  title: string;
+  description: string;
+  action?: ReactNode;
+  tone?: 'green' | 'blue' | 'yellow';
+  children: ReactNode;
+}) {
+  const toneClasses = {
+    green: 'border-duo-green/35 bg-duo-green/10',
+    blue: 'border-duo-blue/35 bg-duo-blue/10',
+    yellow: 'border-duo-yellow/60 bg-duo-yellow/20',
+  }[tone];
+
+  return (
+    <section className={`rounded-chonk border-2 p-4 shadow-card sm:p-5 ${toneClasses}`}>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-extrabold text-duo-ink">{title}</h2>
+          <p className="mt-1 text-sm font-semibold leading-relaxed text-duo-mute">{description}</p>
+        </div>
+        {action}
+      </div>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
 async function NewsYouLearnSection({ date }: { date?: string }) {
   try {
     const session = await getSession();
-    if (!session?.user) return null;
+    if (!session?.user) {
+      return (
+        <EmptyState
+          emoji="YL"
+          title="Sign in to see daily YouLearn video"
+          description="Tubeo picks one imported YouLearn video per day and saves transcript notes to your account."
+        />
+      );
+    }
     const activeDate = date ?? istDateString();
     const state = await readNewsYouLearnState(session);
     return <NewsYouLearnDaily initialState={state} date={activeDate} />;
@@ -198,7 +260,13 @@ async function NewsVideos({
   const now = getRequestTime();
   const session = await getSession();
   if (!session?.user) {
-    return null;
+    return (
+      <EmptyState
+        emoji="YT"
+        title="Sign in to see news channel videos"
+        description={`Tubeo loads videos from channels assigned to your "${NEWS_SPACE}" space after sign-in.`}
+      />
+    );
   }
 
   const preferences = await getWhitelistedChannelPreferences();
