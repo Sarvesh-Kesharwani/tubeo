@@ -254,16 +254,43 @@ function LayerHeader({ label, title, description }: { label: string; title: stri
   );
 }
 
+const LAYER_KEYS = ['layer0', 'layer1', 'layer2', 'layer3', 'layer4', 'layer5', 'layer6', 'layer7'];
+
+function normalizedSummaryKey(key: string): string {
+  return key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+function isGroupWrapperKey(key: string): boolean {
+  return /^group[a-z0-9]*$/i.test(normalizedSummaryKey(key)) || normalizedSummaryKey(key) === 'groups';
+}
+
+function nestedLayer(data: Record<string, unknown>, layerKey: string): Record<string, unknown> {
+  if (isRecord(data[layerKey])) return data[layerKey] as Record<string, unknown>;
+
+  for (const [key, value] of Object.entries(data)) {
+    if (!isGroupWrapperKey(key) || !isRecord(value)) continue;
+    const exact = value[layerKey];
+    if (isRecord(exact)) return exact;
+  }
+
+  return {};
+}
+
+function isRedundantLayerGroup(key: string, value: unknown): boolean {
+  if (!isGroupWrapperKey(key) || !isRecord(value)) return false;
+  return LAYER_KEYS.some((layerKey) => isRecord(value[layerKey]));
+}
+
 function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>; fallbackTitle: string }) {
-  const layer0 = isRecord(data.layer0) ? data.layer0 : {};
-  const layer1 = isRecord(data.layer1) ? data.layer1 : {};
-  const layer2 = isRecord(data.layer2) ? data.layer2 : {};
-  const layer3 = isRecord(data.layer3) ? data.layer3 : {};
-  const layer4 = isRecord(data.layer4) ? data.layer4 : {};
-  const layer5 = isRecord(data.layer5) ? data.layer5 : {};
-  const layer6 = isRecord(data.layer6) ? data.layer6 : {};
-  const layer7 = isRecord(data.layer7) ? data.layer7 : {};
-  const known = new Set(['layer0', 'layer1', 'layer2', 'layer3', 'layer4', 'layer5', 'layer6', 'layer7']);
+  const layer0 = nestedLayer(data, 'layer0');
+  const layer1 = nestedLayer(data, 'layer1');
+  const layer2 = nestedLayer(data, 'layer2');
+  const layer3 = nestedLayer(data, 'layer3');
+  const layer4 = nestedLayer(data, 'layer4');
+  const layer5 = nestedLayer(data, 'layer5');
+  const layer6 = nestedLayer(data, 'layer6');
+  const layer7 = nestedLayer(data, 'layer7');
+  const known = new Set(LAYER_KEYS);
   const roadmap = textList(layer0.roadmap);
   const terms = recordList(layer1.terms);
   const events = recordList(layer1.events);
@@ -275,7 +302,9 @@ function LayeredSummary({ data, fallbackTitle }: { data: Record<string, unknown>
     { key: 'layer6', data: layer6, label: 'Layer 6', title: 'Outcomes & consequences', tone: 'blue' },
     { key: 'layer7', data: layer7, label: 'Layer 7', title: 'Layer connections', tone: 'yellow' },
   ].filter((block) => Object.keys(block.data).length > 0);
-  const extras = Object.fromEntries(Object.entries(data).filter(([key]) => !known.has(key)));
+  const extras = Object.fromEntries(
+    Object.entries(data).filter(([key, value]) => !known.has(key) && !isRedundantLayerGroup(key, value)),
+  );
 
   return (
     <div className="space-y-4">
