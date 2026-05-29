@@ -178,7 +178,7 @@ export async function loadNewsForUser(
   };
 
   try {
-    await writeNewsSummary(identity, entry);
+    await writeNewsSummary(identity, entry, prompt);
   } catch (error) {
     // Persisting failed — still return the freshly generated summary so the UI shows something.
     return {
@@ -315,7 +315,7 @@ export async function loadNewsFromUrl(
   };
 
   try {
-    await writeNewsSummary(identity, entry);
+    await writeNewsSummary(identity, entry, prompt);
   } catch {
     // Best-effort persist
   }

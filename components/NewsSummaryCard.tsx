@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import type { NewsLoadResult } from '@/lib/news-service';
 import type { NewsSummaryEntry } from '@/lib/supabase-news';
 
+const INSIGHTS_SOURCE_URL = 'https://www.insightsonindia.com/current-affairs-upsc/';
+
 function prettyKey(key: string): string {
   return key
     .replace(/[_-]+/g, ' ')
@@ -517,12 +519,12 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
           <p className="text-xs text-duo-mute">
             Source:{' '}
             <a
-              href={result.sourceUrl}
+              href={INSIGHTS_SOURCE_URL}
               target="_blank"
               rel="noreferrer"
-              className="font-semibold text-duo-blueDark hover:underline"
+              className="break-all font-semibold text-duo-blueDark hover:underline"
             >
-              insightsonindia.com
+              {INSIGHTS_SOURCE_URL}
             </a>
             <button
               type="button"
@@ -575,6 +577,12 @@ export function NewsSummaryCard({ initial }: { initial: NewsLoadResult }) {
       {error && (
         <div className="rounded-chonk border-2 border-duo-red bg-white px-4 py-3 text-sm font-semibold text-duo-red">
           {error}
+        </div>
+      )}
+
+      {result.error && !error && (
+        <div className="rounded-chonk border-2 border-duo-red bg-white px-4 py-3 text-sm font-semibold text-duo-red">
+          {result.error}
         </div>
       )}
 

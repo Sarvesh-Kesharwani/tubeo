@@ -188,7 +188,7 @@ export async function fetchInsightsOnIndiaHtml(
  * Strips InsightsOnIndia HTML down to the article body to keep DeepSeek token usage bounded.
  * Tries multiple strategies to locate the main article container, falling back to a body slice.
  */
-export function extractInsightsArticleText(html: string, maxChars = 60_000): string {
+export function extractInsightsArticleText(html: string, maxChars = 180_000): string {
   if (!html) return '';
 
   const fragment = extractArticleFragment(html);

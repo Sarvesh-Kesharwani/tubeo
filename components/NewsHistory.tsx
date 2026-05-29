@@ -93,11 +93,27 @@ export function NewsHistory({ activeDate }: { activeDate: string }) {
   }
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-extrabold uppercase tracking-wide text-duo-mute">
-          Previous summaries
-        </h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-extrabold uppercase tracking-wide text-duo-mute">
+            Previous summaries
+          </h3>
+          <select
+            value={activeEntry?.date ?? ''}
+            onChange={(event) => event.target.value && navigate(event.target.value)}
+            className="rounded-full border-2 border-duo-border bg-white px-4 py-2 text-sm font-extrabold text-duo-ink shadow-card outline-none focus:border-duo-blue"
+          >
+            <option value="" disabled>
+              Pick a summary
+            </option>
+            {entries.map((entry) => (
+              <option key={entry.date} value={entry.date}>
+                {formatDate(entry.date)}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {activeEntry && (
           <div className="flex items-center gap-2">
@@ -139,20 +155,11 @@ export function NewsHistory({ activeDate }: { activeDate: string }) {
         </div>
       )}
 
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
-        {entries.map((entry) => (
-          <button
-            key={entry.date}
-            type="button"
-            onClick={() => navigate(entry.date)}
-            className={`chip shrink-0 cursor-pointer text-xs font-semibold transition-colors ${
-              entry.date === activeDate ? 'bg-duo-blue text-white' : 'hover:bg-duo-soft'
-            }`}
-          >
-            {formatDate(entry.date)}
-          </button>
-        ))}
-      </div>
+      {activeEntry?.headings.length ? (
+        <p className="text-xs font-semibold leading-relaxed text-duo-mute">
+          {activeEntry.headings.slice(0, 3).join(' / ')}
+        </p>
+      ) : null}
     </section>
   );
 }

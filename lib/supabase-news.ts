@@ -239,9 +239,10 @@ export async function writeNewsPrompt(
 export async function writeNewsSummary(
   identity: TubeoUserIdentity,
   entry: NewsSummaryEntry,
+  promptFallback?: string,
 ): Promise<NewsStatePayload> {
   const existing = (await readNewsState(identity)) ?? {
-    prompt: '',
+    prompt: trimPrompt(promptFallback),
     summaries: {},
     updatedAt: new Date(0).toISOString(),
   };

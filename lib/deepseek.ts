@@ -706,6 +706,8 @@ export interface InsightsNewsSummaryResult {
 const DEFAULT_INSIGHTS_NEWS_USER_PROMPT_HINT =
   'Return JSON in the shape {"sections":[{"heading":"...","bullets":["..."]}]}. ' +
   'Each section covers one news/topic from the page. Keep bullets concise.';
+const INSIGHTS_ARTICLE_INPUT_CHARS = 180_000;
+const INSIGHTS_OUTPUT_TOKENS = 8000;
 
 export async function summarizeInsightsOnIndiaPage({
   date,
@@ -723,6 +725,8 @@ export async function summarizeInsightsOnIndiaPage({
 
   const system =
     'You summarize the daily InsightsOnIndia UPSC current-affairs page. ' +
+    'Cover every distinct news item/article/topic present in the source. Do not return only the first item. ' +
+    'If the user asks for a table or rows, create one row per source news item. ' +
     'Follow the user-provided output instructions exactly when given; otherwise use the default JSON shape. ' +
     'Return strict JSON only. No markdown, no commentary, no preamble. ' +
     (usedUserPrompt
@@ -732,13 +736,13 @@ export async function summarizeInsightsOnIndiaPage({
   const user = JSON.stringify({
     date,
     sourceUrl,
-    article: cleanedArticle.slice(0, 60_000),
+    article: cleanedArticle.slice(0, INSIGHTS_ARTICLE_INPUT_CHARS),
   });
 
   const content = await runDeepSeekChat({
     system,
     user,
-    maxTokens: 3000,
+    maxTokens: INSIGHTS_OUTPUT_TOKENS,
     operation: `Insights news summary: ${date}`,
   });
 

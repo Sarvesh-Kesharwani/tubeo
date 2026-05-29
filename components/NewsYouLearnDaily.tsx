@@ -703,9 +703,6 @@ export function NewsYouLearnDaily({
               </div>
               <h3 className="text-base font-extrabold leading-tight text-duo-ink">{selectedVideo.title}</h3>
               <div className="flex flex-wrap gap-2">
-                <a href={selectedVideo.url} target="_blank" rel="noreferrer" className="chip">
-                  Open video
-                </a>
                 <button
                   type="button"
                   className="btn-duo bg-white text-duo-blueDark shadow-card"
