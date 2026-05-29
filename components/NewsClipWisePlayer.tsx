@@ -45,13 +45,17 @@ export function NewsClipWisePlayer({
   initialState: NewsYouLearnState;
   date: string;
 }) {
-  const dailyVideo = useMemo(() => pickDaily(initialState.videos, date), [initialState.videos, date]);
+  const videos = useMemo(
+    () => (initialState.clipwiseVideos?.length ? initialState.clipwiseVideos : []),
+    [initialState.clipwiseVideos],
+  );
+  const dailyVideo = useMemo(() => pickDaily(videos, date), [videos, date]);
   const [selectedVideoId, setSelectedVideoId] = useState(
-    initialState.selectedVideoIds?.[date] || dailyVideo?.id || initialState.videos[0]?.id || '',
+    dailyVideo?.id || videos[0]?.id || '',
   );
   const selectedVideo = useMemo(
-    () => initialState.videos.find((video) => video.id === selectedVideoId) ?? dailyVideo,
-    [dailyVideo, initialState.videos, selectedVideoId],
+    () => videos.find((video) => video.id === selectedVideoId) ?? dailyVideo,
+    [dailyVideo, selectedVideoId, videos],
   );
   const [progress, setProgress] = useState<ProgressStore>(initialState.clipwiseProgress ?? {});
   const [duration, setDuration] = useState(selectedVideo?.durationSec || 0);
@@ -76,7 +80,7 @@ export function NewsClipWisePlayer({
   if (!selectedVideo) {
     return (
       <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-6 text-sm font-bold text-duo-mute">
-        No YouLearn videos imported yet.
+        No ClipWise videos imported yet.
       </div>
     );
   }
@@ -202,7 +206,7 @@ export function NewsClipWisePlayer({
             <div className="h-full rounded-full bg-duo-green transition-all" style={{ width: `${pct}%` }} />
           </div>
           <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-            {initialState.videos.map((video) => {
+            {videos.map((video) => {
               const selected = video.id === selectedVideo.id;
               return (
                 <button

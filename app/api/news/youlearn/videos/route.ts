@@ -16,7 +16,7 @@ export async function DELETE(req: Request) {
   const session = await getSession();
   if (!session?.user) return fail('Sign in to edit YouLearn videos.', 401);
 
-  let body: { videoId?: unknown; clear?: unknown };
+  let body: { videoId?: unknown; clear?: unknown; target?: unknown };
   try {
     body = (await req.json()) as { videoId?: unknown; clear?: unknown };
   } catch {
@@ -24,11 +24,12 @@ export async function DELETE(req: Request) {
   }
 
   try {
+    const target = body.target === 'clipwise' ? 'clipwise' : 'youlearn';
     const state =
       body.clear === true
-        ? await clearNewsYouLearnVideos(session)
+        ? await clearNewsYouLearnVideos(session, target)
         : typeof body.videoId === 'string' && body.videoId.trim()
-          ? await removeNewsYouLearnVideo(session, body.videoId.trim())
+          ? await removeNewsYouLearnVideo(session, body.videoId.trim(), target)
           : null;
 
     if (!state) return fail('Choose a video to remove or clear the list.');

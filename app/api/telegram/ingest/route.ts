@@ -280,6 +280,7 @@ async function addYouTubeChannel(
       activeDiscoverSearchId: base.activeDiscoverSearchId,
       discoverDraft: base.discoverDraft,
       lastPagePath: base.lastPagePath,
+      newsYouLearn: base.newsYouLearn,
       quota: base.quota,
       deepseekQuota: base.deepseekQuota,
       quotaHistory: base.quotaHistory,

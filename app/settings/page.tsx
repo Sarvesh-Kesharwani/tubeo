@@ -9,6 +9,7 @@ import { SpaceChannelsList, type SpaceChannelItem } from '@/components/SpaceChan
 import { SpaceSettingsRow } from '@/components/SpaceSettingsRow';
 import { SpacesManager, type SpaceItem } from '@/components/SpacesManager';
 import { readApiUsageSummaries } from '@/lib/api-usage';
+import { isInstagramChannelId, instagramUsernameFromChannelId } from '@/lib/instagram';
 import { readNewsYouLearnState } from '@/lib/news-youlearn-service';
 import { getSession } from '@/lib/session';
 import {
@@ -17,7 +18,6 @@ import {
   getWhitelistedChannelSpaces,
 } from '@/lib/whitelist';
 import { getChannels } from '@/lib/youtube';
-import { isInstagramChannelId, instagramUsernameFromChannelId } from '@/lib/instagram';
 
 export default async function SettingsPage({
   searchParams,
@@ -41,12 +41,11 @@ export default async function SettingsPage({
   try {
     channels = await getChannels(youtubeIds);
   } catch {
-    // Show IDs if API fails
+    // Show IDs if API fails.
   }
 
   const usage = canViewQuota ? await readApiUsageSummaries(params?.quotaDate) : null;
   const newsYouLearn = session?.user ? await readNewsYouLearnState(session) : null;
-
   const channelMap = new Map(channels.map((channel) => [channel.id, channel]));
 
   const items: SpaceItem[] = spaces.map((space) => {
@@ -87,10 +86,15 @@ export default async function SettingsPage({
   });
 
   return (
-    <div suppressHydrationWarning className="w-full space-y-8">
-      <h1 className="text-2xl sm:text-3xl font-extrabold text-duo-ink flex items-center gap-2">
-        <span aria-hidden>⚙️</span> Channels
-      </h1>
+    <div suppressHydrationWarning className="w-full space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold text-duo-ink">Settings</h1>
+          <p className="text-xs font-bold text-duo-mute">
+            {preferences.length} channels / {spaces.length} spaces
+          </p>
+        </div>
+      </div>
 
       {canViewQuota && usage && (
         <QuotaCard
@@ -105,28 +109,40 @@ export default async function SettingsPage({
       {session?.user && <DriveRestoreCard />}
 
       {session?.user && newsYouLearn && (
-        <>
-          <NewsYouLearnLibrarySettings initialState={newsYouLearn} />
+        <div className="grid gap-4 xl:grid-cols-3">
+          <NewsYouLearnLibrarySettings
+            initialState={newsYouLearn}
+            target="youlearn"
+            title="Daily YouLearn"
+          />
+          <NewsYouLearnLibrarySettings
+            initialState={newsYouLearn}
+            target="clipwise"
+            title="ClipWise videos"
+          />
           <NewsYouLearnPromptSettings
             initialPrompt={newsYouLearn.prompt}
             initialUpdatedAt={newsYouLearn.promptUpdatedAt ?? null}
           />
-        </>
+        </div>
       )}
 
-      <section className="card p-5 space-y-4">
-        <h2 className="font-extrabold text-duo-ink">Add a channel</h2>
-        <AddChannelForm spaces={spaces} />
+      <section className="card space-y-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-extrabold text-duo-ink">Quick add</h2>
+          <span className="chip cursor-default text-[11px]">Channels / spaces</span>
+        </div>
+        <div className="grid gap-3 xl:grid-cols-[1.35fr_0.85fr]">
+          <AddChannelForm spaces={spaces} />
+          <AddSpaceForm />
+        </div>
       </section>
 
-      <section className="card p-5 space-y-5">
-        <div className="space-y-1">
+      <section className="card space-y-4 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-extrabold text-duo-ink">Spaces &amp; channels</h2>
-          <p className="text-xs font-bold text-duo-ink/50">
-            Drag a space card by its header to reorder spaces. Drag a channel card to reorder it within its space. Rename or delete spaces inline.
-          </p>
+          <span className="text-xs font-bold text-duo-mute">Drag headers to reorder.</span>
         </div>
-        <AddSpaceForm />
         {spaces.length === 0 ? (
           <p className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-5 text-sm font-bold text-duo-mute">
             No spaces yet. Create one above.

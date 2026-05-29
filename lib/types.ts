@@ -129,9 +129,12 @@ export interface NewsClipWiseProgress {
 export interface NewsYouLearnState {
   sourceUrl: string;
   importedAt: string;
+  clipwiseSourceUrl?: string;
+  clipwiseImportedAt?: string;
   prompt: string;
   promptUpdatedAt?: string;
   videos: NewsYouLearnVideo[];
+  clipwiseVideos?: NewsYouLearnVideo[];
   summaries: Record<string, NewsYouLearnVideoSummary>;
   selectedVideoIds?: Record<string, string>;
   clipwiseProgress?: Record<string, NewsClipWiseProgress>;

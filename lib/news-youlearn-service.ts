@@ -123,6 +123,12 @@ function pruneClipWiseProgress(
   );
 }
 
+type NewsVideoTarget = 'youlearn' | 'clipwise';
+
+function videoListForTarget(state: NewsYouLearnState, target: NewsVideoTarget): NewsYouLearnState['videos'] {
+  return target === 'clipwise' ? state.clipwiseVideos ?? [] : state.videos;
+}
+
 function syncClipWiseProgressForVideos(
   clipwiseProgress: NewsYouLearnState['clipwiseProgress'],
   videos: NewsYouLearnState['videos'],
@@ -164,9 +170,10 @@ function storeFromState(state: Awaited<ReturnType<typeof readUserSyncState>>['st
 export async function readNewsYouLearnState(session: Session | null | undefined): Promise<NewsYouLearnState> {
   const { state } = await readUserSyncState(session);
   const newsYouLearn = state?.newsYouLearn ?? emptyNewsYouLearnState();
-  if (newsYouLearn.videos.length === 0) return newsYouLearn;
+  const clipwiseVideos = newsYouLearn.clipwiseVideos ?? [];
+  if (clipwiseVideos.length === 0) return newsYouLearn;
 
-  const syncedProgress = syncClipWiseProgressForVideos(newsYouLearn.clipwiseProgress, newsYouLearn.videos);
+  const syncedProgress = syncClipWiseProgressForVideos(newsYouLearn.clipwiseProgress, clipwiseVideos);
   const currentKeys = Object.keys(newsYouLearn.clipwiseProgress ?? {}).sort().join('|');
   const syncedKeys = Object.keys(syncedProgress ?? {}).sort().join('|');
   if (syncedKeys === currentKeys) {
@@ -212,27 +219,47 @@ export async function saveNewsYouLearnPrompt(
 export async function importNewsYouLearnSpace(
   session: Session | null | undefined,
   sourceUrl: string,
+  target: NewsVideoTarget = 'youlearn',
 ): Promise<NewsYouLearnState> {
   const videos = await fetchYouLearnSpaceVideos(sourceUrl);
   const state = await readNewsYouLearnState(session);
-  const mergedVideos = mergeVideos(state.videos, videos);
-  return writeNewsYouLearnState(session, {
+  const mergedVideos = mergeVideos(videoListForTarget(state, target), videos);
+  const base = {
     ...state,
+  };
+  if (target === 'clipwise') {
+    return writeNewsYouLearnState(session, {
+      ...base,
+      clipwiseSourceUrl: sourceUrl.trim(),
+      clipwiseImportedAt: new Date().toISOString(),
+      clipwiseVideos: mergedVideos,
+      clipwiseProgress: syncClipWiseProgressForVideos(state.clipwiseProgress, mergedVideos),
+    });
+  }
+  return writeNewsYouLearnState(session, {
+    ...base,
     sourceUrl: sourceUrl.trim(),
     importedAt: new Date().toISOString(),
     videos: mergedVideos,
     summaries: pruneSummaries(state.summaries, new Set(mergedVideos.map((video) => video.id))),
     selectedVideoIds: pruneSelectedVideoIds(state.selectedVideoIds, new Set(mergedVideos.map((video) => video.id))),
-    clipwiseProgress: syncClipWiseProgressForVideos(state.clipwiseProgress, mergedVideos),
   });
 }
 
 export async function removeNewsYouLearnVideo(
   session: Session | null | undefined,
   videoId: string,
+  target: NewsVideoTarget = 'youlearn',
 ): Promise<NewsYouLearnState> {
   const state = await readNewsYouLearnState(session);
-  const videos = state.videos.filter((video) => video.id !== videoId);
+  const videos = videoListForTarget(state, target).filter((video) => video.id !== videoId);
+  if (target === 'clipwise') {
+    return writeNewsYouLearnState(session, {
+      ...state,
+      clipwiseVideos: videos,
+      clipwiseProgress: pruneClipWiseProgress(state.clipwiseProgress, new Set(videos.map((video) => video.id))),
+    });
+  }
   return writeNewsYouLearnState(session, {
     ...state,
     videos,
@@ -264,8 +291,16 @@ export async function markNewsYouLearnVideoCompleted(
 
 export async function clearNewsYouLearnVideos(
   session: Session | null | undefined,
+  target: NewsVideoTarget = 'youlearn',
 ): Promise<NewsYouLearnState> {
   const state = await readNewsYouLearnState(session);
+  if (target === 'clipwise') {
+    return writeNewsYouLearnState(session, {
+      ...state,
+      clipwiseVideos: [],
+      clipwiseProgress: {},
+    });
+  }
   return writeNewsYouLearnState(session, {
     ...state,
     videos: [],
@@ -297,7 +332,8 @@ export async function saveNewsYouLearnClipWiseProgress(
 ): Promise<{ state: NewsYouLearnState; progress: NewsClipWiseProgress }> {
   const state = await readNewsYouLearnState(session);
   const videoId = input.videoId.trim();
-  const video = state.videos.find((item) => item.id === videoId);
+  const clipwiseVideos = state.clipwiseVideos?.length ? state.clipwiseVideos : state.videos;
+  const video = clipwiseVideos.find((item) => item.id === videoId);
   if (!video) throw new Error('Choose an imported YouLearn video.');
 
   const clipSeconds = Number.isFinite(input.clipSeconds) && input.clipSeconds > 0
@@ -323,11 +359,11 @@ export async function saveNewsYouLearnClipWiseProgress(
     updatedAt: new Date().toISOString(),
   };
   const videos = completedAt
-    ? state.videos.map((item) => (item.id === videoId ? { ...item, completedAt: item.completedAt || completedAt } : item))
-    : state.videos;
+    ? clipwiseVideos.map((item) => (item.id === videoId ? { ...item, completedAt: item.completedAt || completedAt } : item))
+    : clipwiseVideos;
   const next = await writeNewsYouLearnState(session, {
     ...state,
-    videos,
+    clipwiseVideos: videos,
     clipwiseProgress: {
       ...(state.clipwiseProgress ?? {}),
       [key]: progress,

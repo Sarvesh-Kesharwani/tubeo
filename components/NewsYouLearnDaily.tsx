@@ -652,13 +652,7 @@ export function NewsYouLearnDaily({
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-extrabold text-duo-ink">Daily YouLearn video</h2>
-          <p className="mt-1 text-sm text-duo-mute">
-            Import a public YouLearn space. Tubeo shows one video per day and processes its transcript with your settings prompt.
-          </p>
-        </div>
+      <div className="flex justify-end">
         <Link href="/settings" className="btn-duo bg-white text-duo-blueDark shadow-card">
           Manage list
         </Link>

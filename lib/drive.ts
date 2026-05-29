@@ -187,9 +187,12 @@ export function emptyNewsYouLearnState(): NewsYouLearnState {
   return {
     sourceUrl: '',
     importedAt: new Date(0).toISOString(),
+    clipwiseSourceUrl: '',
+    clipwiseImportedAt: new Date(0).toISOString(),
     prompt: '',
     promptUpdatedAt: new Date(0).toISOString(),
     videos: [],
+    clipwiseVideos: [],
     summaries: {},
     selectedVideoIds: {},
     clipwiseProgress: {},
@@ -264,6 +267,14 @@ function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefine
     seen.add(video.id);
     videos.push(video);
   }
+  const seenClipwise = new Set<string>();
+  const clipwiseVideos: NewsYouLearnVideo[] = [];
+  for (const raw of Array.isArray(value.clipwiseVideos) ? value.clipwiseVideos : []) {
+    const video = normalizeNewsYouLearnVideo(raw);
+    if (!video || seenClipwise.has(video.id)) continue;
+    seenClipwise.add(video.id);
+    clipwiseVideos.push(video);
+  }
 
   const summaries: Record<string, NewsYouLearnVideoSummary> = {};
   if (value.summaries && typeof value.summaries === 'object') {
@@ -278,19 +289,26 @@ function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefine
     trimmedSummaries[key] = summaries[key];
   }
   const videoIds = new Set(videos.map((video) => video.id));
+  const clipwiseVideoIds = new Set(clipwiseVideos.map((video) => video.id));
 
   return {
     sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl.trim() : '',
     importedAt: typeof value.importedAt === 'string' && value.importedAt.trim() ? value.importedAt : new Date(0).toISOString(),
+    clipwiseSourceUrl: typeof value.clipwiseSourceUrl === 'string' ? value.clipwiseSourceUrl.trim() : '',
+    clipwiseImportedAt:
+      typeof value.clipwiseImportedAt === 'string' && value.clipwiseImportedAt.trim()
+        ? value.clipwiseImportedAt
+        : new Date(0).toISOString(),
     prompt: typeof value.prompt === 'string' ? value.prompt.slice(0, 8000) : '',
     promptUpdatedAt:
       typeof value.promptUpdatedAt === 'string' && value.promptUpdatedAt.trim()
         ? value.promptUpdatedAt
         : new Date(0).toISOString(),
     videos,
+    clipwiseVideos,
     summaries: trimmedSummaries,
     selectedVideoIds: normalizeNewsYouLearnSelections(value.selectedVideoIds, videoIds),
-    clipwiseProgress: normalizeNewsClipWiseProgress(value.clipwiseProgress, videoIds),
+    clipwiseProgress: normalizeNewsClipWiseProgress(value.clipwiseProgress, clipwiseVideoIds),
   };
 }
 

@@ -76,18 +76,18 @@ export function NewsYouLearnPromptSettings({
   }
 
   return (
-    <section className="card space-y-4 p-5">
-      <div className="space-y-1">
+    <section className="card space-y-3 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-extrabold text-duo-ink">News YouLearn video prompt</h2>
-        <p className="text-xs font-bold leading-relaxed text-duo-ink/50">
-          Used when the News page processes the daily YouLearn transcript with DeepSeek. Leave empty to use Tubeo's default Hinglish summary prompt.
-        </p>
+        <span className={`chip cursor-default text-[11px] ${remaining < 0 ? 'text-duo-red' : ''}`}>
+          {remaining.toLocaleString()} left
+        </span>
       </div>
 
       <textarea
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
-        rows={7}
+        rows={5}
         spellCheck={false}
         placeholder='Example: Return JSON {"title":"...","key_points":["..."],"why_it_matters":["..."],"terms":[{"term":"...","meaning":"..."}],"revision_notes":["..."]}. Use Hinglish.'
         className="w-full resize-y rounded-2xl border-2 border-duo-border bg-white p-3 font-mono text-[13px] leading-relaxed text-duo-ink focus:border-duo-blue focus:outline-none"
@@ -100,9 +100,6 @@ export function NewsYouLearnPromptSettings({
           {status === 'error' && error && <span className="text-duo-red">{error}</span>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`chip cursor-default text-[11px] ${remaining < 0 ? 'text-duo-red' : ''}`}>
-            {remaining.toLocaleString()} left
-          </span>
           {dirty && (
             <button
               type="button"

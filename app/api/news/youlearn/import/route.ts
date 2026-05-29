@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session?.user) return fail('Sign in to import YouLearn videos.', 401);
 
-  let body: { sourceUrl?: unknown };
+  let body: { sourceUrl?: unknown; target?: unknown };
   try {
     body = (await req.json()) as { sourceUrl?: unknown };
   } catch {
@@ -24,7 +24,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const state = await importNewsYouLearnSpace(session, body.sourceUrl);
+    const target = body.target === 'clipwise' ? 'clipwise' : 'youlearn';
+    const state = await importNewsYouLearnSpace(session, body.sourceUrl, target);
     return NextResponse.json({ ok: true, state });
   } catch (error) {
     return fail((error as Error).message || 'Could not import YouLearn videos.', 502);

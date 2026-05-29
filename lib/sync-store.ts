@@ -23,6 +23,30 @@ export interface SyncStoreWriteResult {
   driveBackupOk: boolean;
 }
 
+function hasNewsYouLearnData(state: DriveSyncState['newsYouLearn'] | null | undefined): boolean {
+  if (!state) return false;
+  return (
+    state.videos.length > 0 ||
+    (state.clipwiseVideos?.length ?? 0) > 0 ||
+    Object.keys(state.summaries ?? {}).length > 0 ||
+    Object.keys(state.selectedVideoIds ?? {}).length > 0 ||
+    Object.keys(state.clipwiseProgress ?? {}).length > 0 ||
+    Boolean(state.sourceUrl.trim()) ||
+    Boolean(state.clipwiseSourceUrl?.trim()) ||
+    Boolean(state.prompt.trim())
+  );
+}
+
+function preserveNewsYouLearn(
+  incoming: DriveWriteState['newsYouLearn'],
+  existing: DriveSyncState | null | undefined,
+): DriveWriteState['newsYouLearn'] {
+  if (hasNewsYouLearnData(incoming) || !hasNewsYouLearnData(existing?.newsYouLearn)) {
+    return incoming;
+  }
+  return existing?.newsYouLearn;
+}
+
 function updatedTime(state: DriveSyncState | null | undefined): number {
   const parsed = Date.parse(state?.updatedAt ?? '');
   return Number.isFinite(parsed) ? parsed : 0;
@@ -84,6 +108,11 @@ export async function writeUserSyncState(
   let stateToWrite = store;
 
   if (identity && isSupabaseSyncConfigured()) {
+    const existing = await readSupabaseSyncState(identity);
+    stateToWrite = {
+      ...stateToWrite,
+      newsYouLearn: preserveNewsYouLearn(stateToWrite.newsYouLearn, existing),
+    };
     if (
       !stateToWrite.quota ||
       !stateToWrite.deepseekQuota ||
@@ -91,7 +120,6 @@ export async function writeUserSyncState(
       !stateToWrite.deepseekQuotaHistory ||
       !stateToWrite.newsYouLearn
     ) {
-      const existing = await readSupabaseSyncState(identity);
       stateToWrite = {
         ...stateToWrite,
         quota: stateToWrite.quota ?? existing?.quota,
@@ -121,6 +149,11 @@ export async function writeUserSyncState(
   }
 
   if (!accessToken) throw new Error('No sync destination configured.');
+  const existing = await readDriveChannels(accessToken);
+  stateToWrite = {
+    ...stateToWrite,
+    newsYouLearn: preserveNewsYouLearn(stateToWrite.newsYouLearn, existing),
+  };
   if (
     !stateToWrite.quota ||
     !stateToWrite.deepseekQuota ||
@@ -128,7 +161,6 @@ export async function writeUserSyncState(
     !stateToWrite.deepseekQuotaHistory ||
     !stateToWrite.newsYouLearn
   ) {
-    const existing = await readDriveChannels(accessToken);
     stateToWrite = {
       ...stateToWrite,
       quota: stateToWrite.quota ?? existing?.quota,

@@ -82,39 +82,37 @@ export function DriveRestoreCard() {
       : 'No backup available';
 
   return (
-    <section className="card space-y-3 border-red-200 bg-red-50/60 p-5">
-      <div className="space-y-1">
-        <h2 className="font-extrabold text-duo-ink">Drive backup restore</h2>
-        <p className="text-xs font-bold text-duo-ink/60">
-          Restore your most recent Tubeo backup from Google Drive app data.
-          Yesterday&apos;s backup is used when available.
-        </p>
-      </div>
-      <div className="rounded-2xl border-2 border-red-100 bg-white px-3 py-2 text-xs font-bold text-duo-ink/60">
-        {data ? (
-          targetBackup ? (
-            <span>
-              {isYesterday
-                ? `Found ${targetBackup.type} backup for ${data.defaultDate} (yesterday): ${targetBackup.name}`
-                : `No backup for ${data.yesterday} (yesterday). Falling back to ${targetBackup.type} backup for ${data.defaultDate}: ${targetBackup.name}`}
-            </span>
+    <details className="card border-red-200 bg-red-50/60 p-4">
+      <summary className="cursor-pointer text-sm font-extrabold text-duo-ink">
+        Drive backup restore
+      </summary>
+      <div className="mt-3 space-y-3">
+        <div className="rounded-2xl border-2 border-red-100 bg-white px-3 py-2 text-xs font-bold text-duo-ink/60">
+          {data ? (
+            targetBackup ? (
+              <span>
+                {isYesterday
+                  ? `Found ${targetBackup.type} backup for ${data.defaultDate}: ${targetBackup.name}`
+                  : `Fallback ${targetBackup.type} backup for ${data.defaultDate}: ${targetBackup.name}`}
+              </span>
+            ) : (
+              <span>No Tubeo backups found in Drive yet.</span>
+            )
           ) : (
-            <span>No Tubeo backups found in Drive yet.</span>
-          )
-        ) : (
-          <span>Checking Drive backups...</span>
-        )}
+            <span>Checking Drive backups...</span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={restoreYesterday}
+          disabled={pending || !targetBackup}
+          className="btn-duo bg-red-500 text-white shadow-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {buttonLabel}
+        </button>
+        {message && <p className="text-sm font-bold text-duo-greenDark">{message}</p>}
+        {error && <p className="text-sm font-bold text-red-500">{error}</p>}
       </div>
-      <button
-        type="button"
-        onClick={restoreYesterday}
-        disabled={pending || !targetBackup}
-        className="btn-duo bg-red-500 text-white shadow-red-200 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {buttonLabel}
-      </button>
-      {message && <p className="text-sm font-bold text-duo-greenDark">{message}</p>}
-      {error && <p className="text-sm font-bold text-red-500">{error}</p>}
-    </section>
+    </details>
   );
 }

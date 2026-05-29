@@ -19,9 +19,21 @@ function isCompletedOverOneWeek(completedAt?: string): boolean {
   return Date.now() - parsed > 7 * 24 * 60 * 60 * 1000;
 }
 
-export function NewsYouLearnLibrarySettings({ initialState }: { initialState: NewsYouLearnState }) {
+export function NewsYouLearnLibrarySettings({
+  initialState,
+  target = 'youlearn',
+  title = 'Daily YouLearn videos',
+}: {
+  initialState: NewsYouLearnState;
+  target?: 'youlearn' | 'clipwise';
+  title?: string;
+}) {
   const [state, setState] = useState(initialState);
-  const [sourceUrl, setSourceUrl] = useState(initialState.sourceUrl);
+  const list = target === 'clipwise' ? state.clipwiseVideos ?? [] : state.videos;
+  const importedAt = target === 'clipwise' ? state.clipwiseImportedAt : state.importedAt;
+  const [sourceUrl, setSourceUrl] = useState(
+    target === 'clipwise' ? initialState.clipwiseSourceUrl ?? '' : initialState.sourceUrl,
+  );
   const [busy, setBusy] = useState<'import' | 'clear' | string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -34,13 +46,14 @@ export function NewsYouLearnLibrarySettings({ initialState }: { initialState: Ne
       const res = await fetch('/api/news/youlearn/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceUrl }),
+        body: JSON.stringify({ sourceUrl, target }),
       });
       const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; error?: string };
       if (!res.ok || !data.ok || !data.state) throw new Error(data.error || 'Import failed.');
       setState(data.state);
-      setSourceUrl(data.state.sourceUrl);
-      setMessage(`Imported list now has ${data.state.videos.length} videos.`);
+      setSourceUrl(target === 'clipwise' ? data.state.clipwiseSourceUrl ?? '' : data.state.sourceUrl);
+      const nextList = target === 'clipwise' ? data.state.clipwiseVideos ?? [] : data.state.videos;
+      setMessage(`Imported list now has ${nextList.length} videos.`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -57,7 +70,7 @@ export function NewsYouLearnLibrarySettings({ initialState }: { initialState: Ne
       const res = await fetch('/api/news/youlearn/videos', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, target }),
       });
       const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; error?: string };
       if (!res.ok || !data.ok || !data.state) throw new Error(data.error || 'Update failed.');
@@ -71,12 +84,10 @@ export function NewsYouLearnLibrarySettings({ initialState }: { initialState: Ne
   }
 
   return (
-    <section className="card space-y-5 p-5">
-      <div className="space-y-1">
-        <h2 className="font-extrabold text-duo-ink">Daily YouLearn videos</h2>
-        <p className="text-xs font-bold leading-relaxed text-duo-ink/50">
-          Import public YouLearn spaces, folders, or playlists into one local Tubeo list. The News page picks one video per day from this list.
-        </p>
+    <section className="card space-y-3 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-extrabold text-duo-ink">{title}</h2>
+        <span className="chip cursor-default text-[11px]">{list.length} videos</span>
       </div>
 
       <div className="flex flex-col gap-2 lg:flex-row">
@@ -98,9 +109,8 @@ export function NewsYouLearnLibrarySettings({ initialState }: { initialState: Ne
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2 text-xs font-extrabold text-duo-mute">
-          <span className="chip cursor-default">{state.videos.length} videos</span>
-          {state.importedAt !== new Date(0).toISOString() && (
-            <span className="chip cursor-default">Last import {new Date(state.importedAt).toLocaleString()}</span>
+          {importedAt && importedAt !== new Date(0).toISOString() && (
+            <span className="chip cursor-default">Last import {new Date(importedAt).toLocaleString()}</span>
           )}
           {message && <span className="chip cursor-default text-duo-greenDark">{message}</span>}
           {error && <span className="chip cursor-default text-duo-red">{error}</span>}
@@ -113,61 +123,66 @@ export function NewsYouLearnLibrarySettings({ initialState }: { initialState: Ne
               void updateList({ clear: true });
             }
           }}
-          disabled={busy !== null || state.videos.length === 0}
+          disabled={busy !== null || list.length === 0}
         >
           {busy === 'clear' ? 'Clearing...' : 'Clear list'}
         </button>
       </div>
 
-      {state.videos.length > 0 ? (
-        <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
-          {state.videos.map((video) => {
-            const staleCompleted = isCompletedOverOneWeek(video.completedAt);
-            return (
-            <article
-              key={video.id}
-              className={`flex gap-3 rounded-3xl border-2 p-3 shadow-card ${
-                staleCompleted
-                  ? 'border-duo-red bg-duo-red/10'
-                  : 'border-duo-border bg-white'
-              }`}
-            >
-              {video.thumbnail ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={video.thumbnail} alt="" className="h-16 w-24 rounded-2xl object-cover" />
-              ) : (
-                <div className="h-16 w-24 rounded-2xl bg-duo-soft" />
-              )}
-              <div className="min-w-0 flex-1">
-                <h3 className="line-clamp-2 text-sm font-extrabold leading-snug text-duo-ink">{video.title}</h3>
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-extrabold text-duo-mute">
-                  {video.durationSec > 0 && <span className="chip cursor-default">{formatDuration(video.durationSec)}</span>}
-                  {video.contentId && <span className="chip cursor-default">Transcript ready</span>}
-                  {video.completedAt && (
-                    <span className={`chip cursor-default ${staleCompleted ? 'border-duo-red text-duo-red' : 'text-duo-greenDark'}`}>
-                      {staleCompleted ? 'Completed over 1 week ago' : `Completed ${new Date(video.completedAt).toLocaleDateString()}`}
-                    </span>
+      {list.length > 0 ? (
+        <details className="rounded-2xl border-2 border-duo-border bg-duo-soft/40 p-3">
+          <summary className="cursor-pointer text-sm font-extrabold text-duo-ink">
+            Manage imported videos
+          </summary>
+          <div className="mt-3 max-h-[300px] space-y-2 overflow-auto pr-1">
+            {list.map((video) => {
+              const staleCompleted = isCompletedOverOneWeek(video.completedAt);
+              return (
+                <article
+                  key={video.id}
+                  className={`flex gap-3 rounded-2xl border-2 p-2 shadow-card ${
+                    staleCompleted
+                      ? 'border-duo-red bg-duo-red/10'
+                      : 'border-duo-border bg-white'
+                  }`}
+                >
+                  {video.thumbnail ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={video.thumbnail} alt="" className="h-12 w-16 rounded-xl object-cover" />
+                  ) : (
+                    <div className="h-12 w-16 rounded-xl bg-duo-soft" />
                   )}
-                  <a href={video.url} target="_blank" rel="noreferrer" className="chip">
-                    Open
-                  </a>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="chip h-fit border-duo-red text-duo-red disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => updateList({ videoId: video.id })}
-                disabled={busy !== null}
-              >
-                {busy === video.id ? 'Removing...' : 'Remove'}
-              </button>
-            </article>
-          );
-          })}
-        </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-sm font-extrabold leading-snug text-duo-ink">{video.title}</h3>
+                    <div className="mt-1 flex flex-wrap gap-1 text-[11px] font-extrabold text-duo-mute">
+                      {video.durationSec > 0 && <span className="chip cursor-default">{formatDuration(video.durationSec)}</span>}
+                      {video.contentId && <span className="chip cursor-default">Transcript</span>}
+                      {video.completedAt && (
+                        <span className={`chip cursor-default ${staleCompleted ? 'border-duo-red text-duo-red' : 'text-duo-greenDark'}`}>
+                          {staleCompleted ? 'Old complete' : `Done ${new Date(video.completedAt).toLocaleDateString()}`}
+                        </span>
+                      )}
+                      <a href={video.url} target="_blank" rel="noreferrer" className="chip">
+                        Open
+                      </a>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="chip h-fit border-duo-red text-duo-red disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => updateList({ videoId: video.id })}
+                    disabled={busy !== null}
+                  >
+                    {busy === video.id ? '...' : 'Remove'}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        </details>
       ) : (
-        <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-6 text-sm font-bold text-duo-mute">
-          No YouLearn videos imported yet.
+        <div className="rounded-2xl border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-3 text-sm font-bold text-duo-mute">
+          No videos imported yet.
         </div>
       )}
     </section>

@@ -4,7 +4,6 @@ import { DurationFilter } from '@/components/DurationFilter';
 import { EmptyState } from '@/components/EmptyState';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { NewsPromptEditor } from '@/components/NewsPromptEditor';
-import { NewsHistory } from '@/components/NewsHistory';
 import { NewsClipWisePlayer } from '@/components/NewsClipWisePlayer';
 import { NewsSummaryCard } from '@/components/NewsSummaryCard';
 import { NewsYouLearnDaily } from '@/components/NewsYouLearnDaily';
@@ -98,17 +97,13 @@ export default async function NewsPage({
         }
         tone="blue"
       >
-        <Suspense fallback={null}>
-          <NewsHistorySection date={selectedDate} />
-        </Suspense>
         <Suspense fallback={<SummarySkeleton />}>
           <NewsSummarySection date={selectedDate} />
         </Suspense>
       </NewsSectionBlock>
 
       <NewsSectionBlock
-        title="YouLearn video"
-        description="One daily YouLearn video with transcript notes and completion tracking."
+        title="Daily UPSC"
         tone="yellow"
       >
         <Suspense fallback={<SummarySkeleton />}>
@@ -167,7 +162,7 @@ function NewsSectionBlock({
   children,
 }: {
   title: string;
-  description: string;
+  description?: string;
   action?: ReactNode;
   tone?: 'green' | 'blue' | 'yellow';
   children: ReactNode;
@@ -183,7 +178,7 @@ function NewsSectionBlock({
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-extrabold text-duo-ink">{title}</h2>
-          <p className="mt-1 text-sm font-semibold leading-relaxed text-duo-mute">{description}</p>
+          {description && <p className="mt-1 text-sm font-semibold leading-relaxed text-duo-mute">{description}</p>}
         </div>
         {action}
       </div>
@@ -268,14 +263,6 @@ async function NewsSummarySection({ date }: { date?: string }) {
       />
     );
   }
-}
-
-async function NewsHistorySection({ date }: { date?: string }) {
-  const session = await getSession();
-  const identity = getTubeoUserIdentity(session);
-  if (!identity || !isSupabaseNewsConfigured()) return null;
-  const activeDate = date ?? istDateString();
-  return <NewsHistory activeDate={activeDate} />;
 }
 
 async function NewsPromptSection() {
