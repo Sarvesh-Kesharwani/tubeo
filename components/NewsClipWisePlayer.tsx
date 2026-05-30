@@ -27,6 +27,16 @@ function formatTime(seconds: number): string {
   return `${hours}:${String(mins % 60).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+function sourceLabel(sourceUrl: string | undefined): string {
+  if (!sourceUrl?.trim()) return 'Imported videos';
+  try {
+    const url = new URL(sourceUrl);
+    return url.hostname.replace(/^www\./, '');
+  } catch {
+    return sourceUrl.trim().slice(0, 36);
+  }
+}
+
 function clipCount(duration: number): number {
   return Math.max(1, Math.ceil(Math.max(duration, CLIP_SECONDS) / CLIP_SECONDS));
 }
@@ -45,9 +55,15 @@ export function NewsClipWisePlayer({
   initialState: NewsYouLearnState;
   date: string;
 }) {
+  const [state, setState] = useState(initialState);
+  const [sourceUrl, setSourceUrl] = useState(initialState.clipwiseSourceUrl ?? '');
+  const [showImport, setShowImport] = useState(false);
+  const [busy, setBusy] = useState<'import' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const videos = useMemo(
-    () => (initialState.clipwiseVideos?.length ? initialState.clipwiseVideos : []),
-    [initialState.clipwiseVideos],
+    () => (state.clipwiseVideos?.length ? state.clipwiseVideos : []),
+    [state.clipwiseVideos],
   );
   const dailyVideo = useMemo(() => pickDaily(videos, date), [videos, date]);
   const [selectedVideoId, setSelectedVideoId] = useState(
@@ -57,7 +73,7 @@ export function NewsClipWisePlayer({
     () => videos.find((video) => video.id === selectedVideoId) ?? dailyVideo,
     [dailyVideo, selectedVideoId, videos],
   );
-  const [progress, setProgress] = useState<ProgressStore>(initialState.clipwiseProgress ?? {});
+  const [progress, setProgress] = useState<ProgressStore>(state.clipwiseProgress ?? {});
   const [duration, setDuration] = useState(selectedVideo?.durationSec || 0);
   const [activeClipIndex, setActiveClipIndex] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -65,8 +81,8 @@ export function NewsClipWisePlayer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    setProgress(initialState.clipwiseProgress ?? {});
-  }, [initialState.clipwiseProgress]);
+    setProgress(state.clipwiseProgress ?? {});
+  }, [state.clipwiseProgress]);
 
   useEffect(() => {
     if (!selectedVideo) return;
@@ -77,11 +93,112 @@ export function NewsClipWisePlayer({
     setStatus(null);
   }, [progress, selectedVideo]);
 
+  async function importSource() {
+    setBusy('import');
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/news/youlearn/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceUrl, target: 'clipwise' }),
+      });
+      const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; error?: string };
+      if (!res.ok || !data.ok || !data.state) throw new Error(data.error || 'Import failed.');
+      setState(data.state);
+      setSourceUrl(data.state.clipwiseSourceUrl ?? '');
+      const nextVideos = data.state.clipwiseVideos ?? [];
+      setSelectedVideoId(pickDaily(nextVideos, date)?.id || nextVideos[0]?.id || '');
+      setMessage(`Imported ${nextVideos.length} videos.`);
+      setShowImport(false);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const toolbar = (
+    <div className="rounded-3xl border-2 border-duo-blue/30 bg-white p-3">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+        <select
+          value={selectedVideo?.id ?? ''}
+          onChange={(event) => {
+            setSelectedVideoId(event.target.value);
+            setError(null);
+            setMessage(null);
+          }}
+          className="min-w-0 rounded-2xl border-2 border-duo-border bg-white px-4 py-3 text-sm font-extrabold text-duo-ink outline-none focus:border-duo-blue lg:w-[280px]"
+          disabled={videos.length === 0}
+        >
+          {videos.length === 0 ? (
+            <option>No videos imported</option>
+          ) : (
+            videos.map((video) => (
+              <option key={video.id} value={video.id}>
+                {video.title}
+              </option>
+            ))
+          )}
+        </select>
+        <button
+          type="button"
+          className="btn-duo bg-white text-duo-blueDark shadow-card"
+          onClick={() => setShowImport((value) => !value)}
+        >
+          Import new space
+        </button>
+        <a
+          href="https://clipwise-one.vercel.app/player/mpp62zin56vjlgq54"
+          target="_blank"
+          rel="noreferrer"
+          className="btn-duo bg-white text-duo-greenDark shadow-card"
+        >
+          Open ClipWise
+        </a>
+        <div className="flex flex-wrap gap-2 lg:ml-auto">
+          <span className="chip cursor-default">{videos.length} videos</span>
+          <span className="chip cursor-default">{sourceLabel(state.clipwiseSourceUrl)}</span>
+          <span className="chip cursor-default text-duo-blueDark">2 min clips</span>
+        </div>
+      </div>
+
+      {showImport && (
+        <div className="mt-3 flex flex-col gap-2 lg:flex-row">
+          <input
+            value={sourceUrl}
+            onChange={(event) => setSourceUrl(event.target.value)}
+            placeholder="Paste public YouLearn space, folder, or playlist link"
+            className="min-w-0 flex-1 rounded-2xl border-2 border-duo-border px-4 py-3 text-sm font-semibold text-duo-ink outline-none focus:border-duo-blue"
+          />
+          <button
+            type="button"
+            className="btn-duo bg-duo-green text-white shadow-duoGreen disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={importSource}
+            disabled={busy !== null || !sourceUrl.trim()}
+          >
+            {busy === 'import' ? 'Importing...' : 'Import videos'}
+          </button>
+        </div>
+      )}
+
+      {(error || message) && (
+        <div className="mt-3 flex flex-wrap gap-2 text-xs font-extrabold">
+          {message && <span className="chip cursor-default text-duo-greenDark">{message}</span>}
+          {error && <span className="chip cursor-default border-duo-red text-duo-red">{error}</span>}
+        </div>
+      )}
+    </div>
+  );
+
   if (!selectedVideo) {
     return (
-      <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-6 text-sm font-bold text-duo-mute">
-        No ClipWise videos imported yet.
-      </div>
+      <section className="space-y-4 rounded-[2rem] border-2 border-duo-border bg-white/70 p-3 shadow-card sm:p-4">
+        {toolbar}
+        <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-6 text-sm font-bold text-duo-mute">
+          No ClipWise videos imported yet. Use Import new space above to add a public YouLearn space.
+        </div>
+      </section>
     );
   }
 
@@ -180,26 +297,15 @@ export function NewsClipWisePlayer({
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-extrabold text-duo-ink">ClipWise practice</h2>
-          <p className="mt-1 text-sm font-semibold text-duo-mute">2 min clips from imported YouLearn videos.</p>
-        </div>
-        <a
-          href="https://clipwise-one.vercel.app/player/mpp62zin56vjlgq54"
-          target="_blank"
-          rel="noreferrer"
-          className="btn-duo bg-white text-duo-blueDark shadow-card"
-        >
-          Open ClipWise
-        </a>
-      </div>
+    <section className="space-y-4 rounded-[2rem] border-2 border-duo-border bg-white/70 p-3 shadow-card sm:p-4">
+      {toolbar}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
-        <aside className="card p-3">
+      <div className="grid min-h-[360px] gap-4 rounded-3xl border-2 border-duo-blue/20 bg-white/70 p-3 lg:grid-cols-[minmax(190px,260px)_1fr]">
+        <aside className="rounded-3xl border-2 border-duo-border bg-duo-soft/50 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="chip cursor-default text-duo-blueDark">2 min clips</span>
+            <span className="text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">
+              {sourceLabel(state.clipwiseSourceUrl)}
+            </span>
             <span className="text-xs font-extrabold text-duo-mute">{doneCount}/{totalClips} complete</span>
           </div>
           <div className="mb-4 h-3 overflow-hidden rounded-full bg-duo-soft">
@@ -212,18 +318,14 @@ export function NewsClipWisePlayer({
                 <button
                   key={video.id}
                   type="button"
-                  className={`flex w-full items-center gap-3 rounded-2xl border-2 p-2 text-left transition-colors ${
-                    selected ? 'border-duo-blue bg-duo-blue/10' : 'border-duo-border bg-white hover:bg-duo-soft'
+                  className={`w-full rounded-2xl border-2 px-3 py-2 text-left transition-colors ${
+                    selected ? 'border-duo-blue bg-duo-blue text-white' : 'border-duo-border bg-white text-duo-ink hover:bg-duo-soft'
                   }`}
                   onClick={() => setSelectedVideoId(video.id)}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={video.thumbnail || '/icon.svg'} alt="" className="h-12 w-16 rounded-xl bg-duo-ink object-cover" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-extrabold text-duo-ink">{video.title}</span>
-                    <span className="text-[11px] font-extrabold text-duo-mute">
-                      {video.durationSec ? formatTime(video.durationSec) : 'Duration on play'}
-                    </span>
+                  <span className="block truncate text-sm font-extrabold">{video.title}</span>
+                  <span className={`mt-1 block text-[11px] font-extrabold ${selected ? 'text-white/85' : 'text-duo-mute'}`}>
+                    {video.durationSec ? formatTime(video.durationSec) : 'Duration on play'}
                   </span>
                 </button>
               );

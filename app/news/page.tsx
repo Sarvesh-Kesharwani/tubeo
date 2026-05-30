@@ -103,7 +103,7 @@ export default async function NewsPage({
       </NewsSectionBlock>
 
       <NewsSectionBlock
-        title="Daily UPSC"
+        title="Daily UPSC Videos"
         tone="yellow"
       >
         <Suspense fallback={<SummarySkeleton />}>
@@ -113,7 +113,6 @@ export default async function NewsPage({
 
       <NewsSectionBlock
         title="ClipWise practice"
-        description="Study imported YouLearn videos as short ClipWise-style clips."
         tone="blue"
       >
         <Suspense fallback={<SummarySkeleton />}>

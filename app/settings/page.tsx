@@ -2,15 +2,12 @@ import { AddChannelForm } from '@/components/AddChannelForm';
 import { AddSpaceForm } from '@/components/AddSpaceForm';
 import { ChannelSettingsRow } from '@/components/ChannelSettingsRow';
 import { DriveRestoreCard } from '@/components/DriveRestoreCard';
-import { NewsYouLearnLibrarySettings } from '@/components/NewsYouLearnLibrarySettings';
-import { NewsYouLearnPromptSettings } from '@/components/NewsYouLearnPromptSettings';
 import { QuotaCard } from '@/components/QuotaCard';
 import { SpaceChannelsList, type SpaceChannelItem } from '@/components/SpaceChannelsList';
 import { SpaceSettingsRow } from '@/components/SpaceSettingsRow';
 import { SpacesManager, type SpaceItem } from '@/components/SpacesManager';
 import { readApiUsageSummaries } from '@/lib/api-usage';
 import { isInstagramChannelId, instagramUsernameFromChannelId } from '@/lib/instagram';
-import { readNewsYouLearnState } from '@/lib/news-youlearn-service';
 import { getSession } from '@/lib/session';
 import {
   getEnvChannelIds,
@@ -45,7 +42,6 @@ export default async function SettingsPage({
   }
 
   const usage = canViewQuota ? await readApiUsageSummaries(params?.quotaDate) : null;
-  const newsYouLearn = session?.user ? await readNewsYouLearnState(session) : null;
   const channelMap = new Map(channels.map((channel) => [channel.id, channel]));
 
   const items: SpaceItem[] = spaces.map((space) => {
@@ -107,25 +103,6 @@ export default async function SettingsPage({
       )}
 
       {session?.user && <DriveRestoreCard />}
-
-      {session?.user && newsYouLearn && (
-        <div className="grid gap-4 xl:grid-cols-3">
-          <NewsYouLearnLibrarySettings
-            initialState={newsYouLearn}
-            target="youlearn"
-            title="Daily YouLearn"
-          />
-          <NewsYouLearnLibrarySettings
-            initialState={newsYouLearn}
-            target="clipwise"
-            title="ClipWise videos"
-          />
-          <NewsYouLearnPromptSettings
-            initialPrompt={newsYouLearn.prompt}
-            initialUpdatedAt={newsYouLearn.promptUpdatedAt ?? null}
-          />
-        </div>
-      )}
 
       <section className="card space-y-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">

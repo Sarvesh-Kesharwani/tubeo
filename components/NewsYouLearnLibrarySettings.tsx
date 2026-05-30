@@ -22,7 +22,7 @@ function isCompletedOverOneWeek(completedAt?: string): boolean {
 export function NewsYouLearnLibrarySettings({
   initialState,
   target = 'youlearn',
-  title = 'Daily YouLearn videos',
+  title = 'Daily UPSC Videos',
 }: {
   initialState: NewsYouLearnState;
   target?: 'youlearn' | 'clipwise';

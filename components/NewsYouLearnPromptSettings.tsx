@@ -45,8 +45,6 @@ export function NewsYouLearnPromptSettings({
     const serverTime = Date.parse(savedAt);
     if (local && Number.isFinite(localTime) && localTime > (Number.isFinite(serverTime) ? serverTime : 0)) {
       setPrompt(local.prompt);
-      setSavedPrompt(local.prompt);
-      setSavedAt(local.updatedAt);
     }
   }, [savedAt]);
 
