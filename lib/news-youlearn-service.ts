@@ -15,6 +15,15 @@ import {
 import { DEFAULT_VIEW_PREFERENCES } from './view-preferences';
 import { readUserSyncState, writeUserSyncState } from './sync-store';
 import {
+  clearDailyUpscClipWiseRecords,
+  deleteDailyUpscClipWiseRecord,
+  isSupabaseDailyUpscClipWiseConfigured,
+  readDailyUpscClipWiseRecords,
+  upsertDailyUpscClipWiseRecord,
+  type DailyUpscClipWiseCategory,
+} from './supabase-daily-upsc-clipwise';
+import { getTubeoUserIdentity } from './supabase-sync';
+import {
   fetchYouLearnSpaceVideos,
   fetchYouLearnTranscript,
   pickDailyYouLearnVideo,
@@ -206,6 +215,90 @@ function syncClipWiseProgressForVideos(
   return next;
 }
 
+function mergeRecordVideoList(existing: NewsYouLearnVideo[], incoming: NewsYouLearnVideo[]): NewsYouLearnVideo[] {
+  const byId = new Map<string, NewsYouLearnVideo>();
+  for (const video of existing) byId.set(video.id, video);
+  for (const video of incoming) {
+    const current = byId.get(video.id);
+    byId.set(video.id, current ? { ...current, ...video, completedAt: video.completedAt ?? current.completedAt } : video);
+  }
+  return [...byId.values()].slice(0, 500);
+}
+
+async function hydrateFromDailyUpscClipWiseTable(
+  session: Session | null | undefined,
+  state: NewsYouLearnState,
+): Promise<NewsYouLearnState> {
+  const identity = getTubeoUserIdentity(session);
+  if (!identity || !isSupabaseDailyUpscClipWiseConfigured()) return state;
+
+  let records: Awaited<ReturnType<typeof readDailyUpscClipWiseRecords>>;
+  try {
+    records = await readDailyUpscClipWiseRecords(identity);
+  } catch {
+    return state;
+  }
+  if (records.length === 0) return state;
+
+  const upsc = records.filter((record) => record.category === 'upsc');
+  const clipwise = records.filter((record) => record.category === 'clipwise');
+  const summaries = { ...state.summaries };
+  const clipwiseProgress = { ...(state.clipwiseProgress ?? {}) };
+
+  for (const record of upsc) {
+    if (record.summary) summaries[summaryKey(record.summary.date, record.summary.videoId)] = record.summary;
+  }
+
+  for (const record of clipwise) {
+    if (record.clipwiseProgress) {
+      clipwiseProgress[`${record.clipwiseProgress.videoId}:${record.clipwiseProgress.clipSeconds}`] = record.clipwiseProgress;
+    }
+  }
+
+  return {
+    ...state,
+    sourceUrl: upsc.find((record) => record.sourceUrl)?.sourceUrl ?? state.sourceUrl,
+    clipwiseSourceUrl: clipwise.find((record) => record.sourceUrl)?.sourceUrl ?? state.clipwiseSourceUrl,
+    videos: mergeRecordVideoList(state.videos, upsc.map((record) => record.video)),
+    clipwiseVideos: mergeRecordVideoList(state.clipwiseVideos ?? [], clipwise.map((record) => record.video)),
+    summaries,
+    clipwiseProgress,
+  };
+}
+
+async function persistDailyUpscClipWiseVideos(
+  session: Session | null | undefined,
+  category: DailyUpscClipWiseCategory,
+  videos: NewsYouLearnVideo[],
+  sourceUrl: string,
+  state: NewsYouLearnState,
+): Promise<void> {
+  const identity = getTubeoUserIdentity(session);
+  if (!identity) return;
+  try {
+    await Promise.all(
+      videos.map((video) =>
+        upsertDailyUpscClipWiseRecord(identity, {
+          category,
+          video,
+          sourceUrl,
+          markedCompleted: Boolean(video.completedAt),
+          summary:
+            category === 'upsc'
+              ? Object.values(state.summaries).find((summary) => summary.videoId === video.id) ?? null
+              : null,
+          clipwiseProgress:
+            category === 'clipwise'
+              ? Object.values(state.clipwiseProgress ?? {}).find((progress) => progress.videoId === video.id) ?? null
+              : null,
+        }),
+      ),
+    );
+  } catch {
+    // The legacy user-state sync remains as a fallback if the new table is not applied yet.
+  }
+}
+
 function storeFromState(state: Awaited<ReturnType<typeof readUserSyncState>>['state']): ChannelPreferenceStore {
   if (!state) return emptyStore();
   return {
@@ -226,7 +319,10 @@ function storeFromState(state: Awaited<ReturnType<typeof readUserSyncState>>['st
 
 export async function readNewsYouLearnState(session: Session | null | undefined): Promise<NewsYouLearnState> {
   const { state } = await readUserSyncState(session);
-  const newsYouLearn = state?.newsYouLearn ?? emptyNewsYouLearnState();
+  const newsYouLearn = await hydrateFromDailyUpscClipWiseTable(
+    session,
+    state?.newsYouLearn ?? emptyNewsYouLearnState(),
+  );
   const clipwiseVideos = newsYouLearn.clipwiseVideos ?? [];
   if (clipwiseVideos.length === 0) return newsYouLearn;
 
@@ -285,15 +381,17 @@ export async function importNewsYouLearnSpace(
     ...state,
   };
   if (target === 'clipwise') {
-    return writeNewsYouLearnState(session, {
+    const next = await writeNewsYouLearnState(session, {
       ...base,
       clipwiseSourceUrl: sourceUrl.trim(),
       clipwiseImportedAt: new Date().toISOString(),
       clipwiseVideos: mergedVideos,
       clipwiseProgress: syncClipWiseProgressForVideos(state.clipwiseProgress, mergedVideos),
     });
+    await persistDailyUpscClipWiseVideos(session, 'clipwise', next.clipwiseVideos ?? [], sourceUrl, next);
+    return next;
   }
-  return writeNewsYouLearnState(session, {
+  const next = await writeNewsYouLearnState(session, {
     ...base,
     sourceUrl: sourceUrl.trim(),
     importedAt: new Date().toISOString(),
@@ -301,6 +399,8 @@ export async function importNewsYouLearnSpace(
     summaries: pruneSummaries(state.summaries, new Set(mergedVideos.map((video) => video.id))),
     selectedVideoIds: pruneSelectedVideoIds(state.selectedVideoIds, new Set(mergedVideos.map((video) => video.id))),
   });
+  await persistDailyUpscClipWiseVideos(session, 'upsc', next.videos, sourceUrl, next);
+  return next;
 }
 
 export async function removeNewsYouLearnVideo(
@@ -311,19 +411,37 @@ export async function removeNewsYouLearnVideo(
   const state = await readNewsYouLearnState(session);
   const videos = videoListForTarget(state, target).filter((video) => video.id !== videoId);
   if (target === 'clipwise') {
-    return writeNewsYouLearnState(session, {
+    const next = await writeNewsYouLearnState(session, {
       ...state,
       clipwiseVideos: videos,
       clipwiseProgress: pruneClipWiseProgress(state.clipwiseProgress, new Set(videos.map((video) => video.id))),
     });
+    const identity = getTubeoUserIdentity(session);
+    if (identity) {
+      try {
+        await deleteDailyUpscClipWiseRecord(identity, 'clipwise', videoId);
+      } catch {
+        // Legacy sync remains authoritative until the new table is available.
+      }
+    }
+    return next;
   }
-  return writeNewsYouLearnState(session, {
+  const next = await writeNewsYouLearnState(session, {
     ...state,
     videos,
     summaries: pruneSummaries(state.summaries, new Set(videos.map((video) => video.id))),
     selectedVideoIds: pruneSelectedVideoIds(state.selectedVideoIds, new Set(videos.map((video) => video.id))),
     clipwiseProgress: pruneClipWiseProgress(state.clipwiseProgress, new Set(videos.map((video) => video.id))),
   });
+  const identity = getTubeoUserIdentity(session);
+  if (identity) {
+    try {
+      await deleteDailyUpscClipWiseRecord(identity, 'upsc', videoId);
+    } catch {
+      // Legacy sync remains authoritative until the new table is available.
+    }
+  }
+  return next;
 }
 
 export async function markNewsYouLearnVideoCompleted(
@@ -340,10 +458,26 @@ export async function markNewsYouLearnVideoCompleted(
         }
       : video,
   );
-  return writeNewsYouLearnState(session, {
+  const next = await writeNewsYouLearnState(session, {
     ...state,
     videos,
   });
+  const identity = getTubeoUserIdentity(session);
+  const video = videos.find((item) => item.id === videoId);
+  if (identity && video) {
+    try {
+      await upsertDailyUpscClipWiseRecord(identity, {
+        category: 'upsc',
+        video,
+        sourceUrl: state.sourceUrl,
+        markedCompleted: true,
+        summary: Object.values(state.summaries).find((summary) => summary.videoId === video.id) ?? null,
+      });
+    } catch {
+      // Legacy sync remains authoritative until the new table is available.
+    }
+  }
+  return next;
 }
 
 export async function clearNewsYouLearnVideos(
@@ -352,19 +486,37 @@ export async function clearNewsYouLearnVideos(
 ): Promise<NewsYouLearnState> {
   const state = await readNewsYouLearnState(session);
   if (target === 'clipwise') {
-    return writeNewsYouLearnState(session, {
+    const next = await writeNewsYouLearnState(session, {
       ...state,
       clipwiseVideos: [],
       clipwiseProgress: {},
     });
+    const identity = getTubeoUserIdentity(session);
+    if (identity) {
+      try {
+        await clearDailyUpscClipWiseRecords(identity, 'clipwise');
+      } catch {
+        // Legacy sync remains authoritative until the new table is available.
+      }
+    }
+    return next;
   }
-  return writeNewsYouLearnState(session, {
+  const next = await writeNewsYouLearnState(session, {
     ...state,
     videos: [],
     summaries: {},
     selectedVideoIds: {},
     clipwiseProgress: {},
   });
+  const identity = getTubeoUserIdentity(session);
+  if (identity) {
+    try {
+      await clearDailyUpscClipWiseRecords(identity, 'upsc');
+    } catch {
+      // Legacy sync remains authoritative until the new table is available.
+    }
+  }
+  return next;
 }
 
 function normalizeClipDone(done: unknown): number[] {
@@ -426,6 +578,21 @@ export async function saveNewsYouLearnClipWiseProgress(
       [key]: progress,
     },
   });
+  const identity = getTubeoUserIdentity(session);
+  const syncedVideo = videos.find((item) => item.id === videoId);
+  if (identity && syncedVideo) {
+    try {
+      await upsertDailyUpscClipWiseRecord(identity, {
+        category: 'clipwise',
+        video: syncedVideo,
+        sourceUrl: state.clipwiseSourceUrl,
+        markedCompleted: Boolean(progress.completedAt),
+        clipwiseProgress: progress,
+      });
+    } catch {
+      // Legacy sync remains authoritative until the new table is available.
+    }
+  }
 
   return { state: next, progress: next.clipwiseProgress?.[key] ?? progress };
 }
@@ -459,14 +626,30 @@ export async function processDailyNewsYouLearnVideo(
   const key = summaryKey(date, video.id);
   const cached = state.summaries[key] ?? (state.summaries[date]?.videoId === video.id ? state.summaries[date] : null);
   if (!options.force && cached?.videoId === video.id && cached.promptHash === promptH) {
-    if (state.selectedVideoIds?.[date] === video.id) return { state, summary: cached };
-    const next = await writeNewsYouLearnState(session, {
-      ...state,
-      selectedVideoIds: {
-        ...(state.selectedVideoIds ?? {}),
-        [date]: video.id,
-      },
-    });
+    const next =
+      state.selectedVideoIds?.[date] === video.id
+        ? state
+        : await writeNewsYouLearnState(session, {
+            ...state,
+            selectedVideoIds: {
+              ...(state.selectedVideoIds ?? {}),
+              [date]: video.id,
+            },
+          });
+    const identity = getTubeoUserIdentity(session);
+    if (identity) {
+      try {
+        await upsertDailyUpscClipWiseRecord(identity, {
+          category: 'upsc',
+          video,
+          sourceUrl: state.sourceUrl,
+          markedCompleted: Boolean(video.completedAt),
+          summary: cached,
+        });
+      } catch {
+        // Legacy sync remains authoritative until the new table is available.
+      }
+    }
     return { state: next, summary: cached };
   }
   if (!video.contentId) throw new Error('This YouLearn video has no content ID, so Tubeo cannot fetch its transcript.');
@@ -506,5 +689,19 @@ export async function processDailyNewsYouLearnVideo(
       [key]: summary,
     },
   });
+  const identity = getTubeoUserIdentity(session);
+  if (identity) {
+    try {
+      await upsertDailyUpscClipWiseRecord(identity, {
+        category: 'upsc',
+        video,
+        sourceUrl: state.sourceUrl,
+        markedCompleted: Boolean(video.completedAt),
+        summary,
+      });
+    } catch {
+      // Legacy sync remains authoritative until the new table is available.
+    }
+  }
   return { state: next, summary };
 }

@@ -225,6 +225,7 @@ export async function readUserSyncState(session: Session | null | undefined): Pr
 export async function writeUserSyncState(
   session: Session | null | undefined,
   store: DriveWriteState,
+  options: { mergeNewsYouLearn?: boolean } = {},
 ): Promise<SyncStoreWriteResult> {
   const identity = getTubeoUserIdentity(session);
   const accessToken = session?.accessToken;
@@ -233,7 +234,9 @@ export async function writeUserSyncState(
 
   if (identity && isSupabaseSyncConfigured()) {
     const existing = await readSupabaseSyncState(identity);
-    stateToWrite = mergeNewsYouLearnIntoStore(stateToWrite, existing);
+    if (options.mergeNewsYouLearn !== false) {
+      stateToWrite = mergeNewsYouLearnIntoStore(stateToWrite, existing);
+    }
     if (
       !stateToWrite.quota ||
       !stateToWrite.deepseekQuota ||
@@ -271,7 +274,9 @@ export async function writeUserSyncState(
 
   if (!accessToken) throw new Error('No sync destination configured.');
   const existing = await readDriveChannels(accessToken);
-  stateToWrite = mergeNewsYouLearnIntoStore(stateToWrite, existing);
+  if (options.mergeNewsYouLearn !== false) {
+    stateToWrite = mergeNewsYouLearnIntoStore(stateToWrite, existing);
+  }
   if (
     !stateToWrite.quota ||
     !stateToWrite.deepseekQuota ||

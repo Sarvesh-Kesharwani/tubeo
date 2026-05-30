@@ -2,20 +2,22 @@ import { revalidatePath } from 'next/cache';
 import { fetchLinkNestSavedLinks, importLinkNestRows } from '@/lib/linknest-import';
 import { getSession } from '@/lib/session';
 import {
-  getCookieSavedVideos,
-  hydrateSavedVideosFromDriveIfNeeded,
   persistSavedVideos,
+  reconcileSavedVideos,
 } from '@/lib/saved-videos';
 
 export async function POST() {
   const session = await getSession();
-  await hydrateSavedVideosFromDriveIfNeeded(session);
+  if (!session?.user) {
+    return Response.json({ ok: false, error: 'Sign in required.' }, { status: 401 });
+  }
 
   try {
-    const [current, rows] = await Promise.all([
-      getCookieSavedVideos(),
+    const [reconciled, rows] = await Promise.all([
+      reconcileSavedVideos(session),
       fetchLinkNestSavedLinks(),
     ]);
+    const current = reconciled.videos;
     const result = importLinkNestRows(current, rows);
 
     if (result.imported.length === 0 && result.updated === 0) {

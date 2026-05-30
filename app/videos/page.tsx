@@ -3,6 +3,7 @@ import { WatchListClient } from '@/components/WatchListClient';
 import {
   getCookieSavedVideos,
   getSavedVideoKind,
+  reconcileSavedVideos,
 } from '@/lib/saved-videos';
 import { getRequestTime } from '@/lib/render';
 import { getSession } from '@/lib/session';
@@ -31,7 +32,7 @@ export default async function VideosPage() {
     );
   }
 
-  const saved = await getCookieSavedVideos();
+  const saved = (await reconcileSavedVideos(session).catch(() => null))?.videos ?? await getCookieSavedVideos();
 
   const ytIds = saved.filter((video) => getSavedVideoKind(video) === 'youtube').map((video) => video.id);
   const videosWithFallbacks = ytIds.map(fallbackYouTubeVideo);
