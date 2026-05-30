@@ -84,6 +84,21 @@ export default async function NewsPage({
             />
             ClipWise
           </a>
+          <a
+            href="https://dialog-dungeon.vercel.app/"
+            target="_blank"
+            rel="noreferrer"
+            className="btn-duo bg-white text-duo-purple shadow-card"
+            title="Open Dialog Dungeon"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="https://dialog-dungeon.vercel.app/favicon.ico"
+              alt=""
+              className="h-5 w-5 rounded-md"
+            />
+            Dialog Dungeon
+          </a>
         </div>
       </NewsSectionBlock>
 
