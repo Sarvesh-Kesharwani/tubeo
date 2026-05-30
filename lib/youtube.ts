@@ -832,6 +832,32 @@ export async function getVideosByIds(videoIds: string[]): Promise<Video[]> {
   return (await getVideosByIdsWithQuota(videoIds)).videos;
 }
 
+export async function getVideosByPlaylistId(playlistId: string, max = 300): Promise<Video[]> {
+  const cleanId = playlistId.trim();
+  if (!/^[\w-]+$/.test(cleanId)) return [];
+
+  const videoIds: string[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 6 && videoIds.length < max; page++) {
+    const dataResult = await yt<YTPlaylistItemsResp>(
+      'playlistItems',
+      {
+        part: 'contentDetails',
+        playlistId: cleanId,
+        maxResults: String(Math.min(50, max - videoIds.length)),
+        ...(pageToken ? { pageToken } : {}),
+      },
+      600,
+    );
+    const data = dataResult.data;
+    videoIds.push(...data.items.map((item) => item.contentDetails.videoId).filter(Boolean));
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+
+  return getVideosByIds(videoIds);
+}
+
 export async function getVideosByIdsWithQuota(videoIds: string[]): Promise<{ videos: Video[]; quotaUnits: number }> {
   const ids = [...new Set(videoIds.map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0) return { videos: [], quotaUnits: 0 };

@@ -20,6 +20,7 @@ import {
   pickDailyYouLearnVideo,
   transcriptToText,
 } from './youlearn-news';
+import { getVideosByIds, getVideosByPlaylistId } from './youtube';
 
 function promptHash(prompt: string): string {
   return createHash('sha256').update(prompt).digest('hex').slice(0, 16);
@@ -125,6 +126,62 @@ function pruneClipWiseProgress(
 
 type NewsVideoTarget = 'youlearn' | 'clipwise';
 
+type YouTubeSource =
+  | { type: 'video'; id: string }
+  | { type: 'playlist'; id: string };
+
+function parseYouTubeSource(rawUrl: string): YouTubeSource | null {
+  const input = rawUrl.trim();
+  if (!input) return null;
+
+  try {
+    const url = new URL(input);
+    const host = url.hostname.replace(/^www\./, '').toLowerCase();
+    const playlistId = url.searchParams.get('list')?.trim();
+
+    if (host === 'youtu.be') {
+      const id = url.pathname.split('/').filter(Boolean)[0];
+      if (id && /^[\w-]{11}$/.test(id)) return { type: 'video', id };
+      return playlistId ? { type: 'playlist', id: playlistId } : null;
+    }
+
+    if (!host.endsWith('youtube.com')) return null;
+    if (playlistId && (url.pathname === '/playlist' || !url.searchParams.get('v'))) {
+      return { type: 'playlist', id: playlistId };
+    }
+
+    const videoId =
+      url.searchParams.get('v')?.trim() ||
+      (url.pathname.startsWith('/shorts/') ? url.pathname.split('/').filter(Boolean)[1] : '') ||
+      (url.pathname.startsWith('/embed/') ? url.pathname.split('/').filter(Boolean)[1] : '');
+    if (videoId && /^[\w-]{11}$/.test(videoId)) return { type: 'video', id: videoId };
+    if (playlistId) return { type: 'playlist', id: playlistId };
+  } catch {
+    if (/^[\w-]{11}$/.test(input)) return { type: 'video', id: input };
+  }
+
+  return null;
+}
+
+async function fetchClipWiseSourceVideos(sourceUrl: string): Promise<NewsYouLearnVideo[]> {
+  const youtubeSource = parseYouTubeSource(sourceUrl);
+  if (!youtubeSource) return fetchYouLearnSpaceVideos(sourceUrl);
+
+  const videos =
+    youtubeSource.type === 'video'
+      ? await getVideosByIds([youtubeSource.id])
+      : await getVideosByPlaylistId(youtubeSource.id);
+  const importedAt = new Date().toISOString();
+  return videos.map((video) => ({
+    id: `yt:${video.id}`,
+    title: video.title,
+    url: `https://www.youtube.com/watch?v=${video.id}`,
+    thumbnail: video.thumbnail || undefined,
+    durationSec: video.durationSec ?? 0,
+    importedAt,
+  }));
+}
+
 function videoListForTarget(state: NewsYouLearnState, target: NewsVideoTarget): NewsYouLearnState['videos'] {
   return target === 'clipwise' ? state.clipwiseVideos ?? [] : state.videos;
 }
@@ -221,7 +278,7 @@ export async function importNewsYouLearnSpace(
   sourceUrl: string,
   target: NewsVideoTarget = 'youlearn',
 ): Promise<NewsYouLearnState> {
-  const videos = await fetchYouLearnSpaceVideos(sourceUrl);
+  const videos = target === 'clipwise' ? await fetchClipWiseSourceVideos(sourceUrl) : await fetchYouLearnSpaceVideos(sourceUrl);
   const state = await readNewsYouLearnState(session);
   const mergedVideos = mergeVideos(videoListForTarget(state, target), videos);
   const base = {

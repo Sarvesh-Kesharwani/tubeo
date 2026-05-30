@@ -48,6 +48,34 @@ function clipBounds(index: number, duration: number) {
   return { start, end, duration: Math.max(1, end - start) };
 }
 
+function youtubeVideoId(rawUrl: string): string | null {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.replace(/^www\./, '').toLowerCase();
+    if (host === 'youtu.be') {
+      const id = url.pathname.split('/').filter(Boolean)[0];
+      return id && /^[\w-]{11}$/.test(id) ? id : null;
+    }
+    if (!host.endsWith('youtube.com')) return null;
+    const id =
+      url.searchParams.get('v') ||
+      (url.pathname.startsWith('/shorts/') ? url.pathname.split('/').filter(Boolean)[1] : '') ||
+      (url.pathname.startsWith('/embed/') ? url.pathname.split('/').filter(Boolean)[1] : '');
+    return id && /^[\w-]{11}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function youtubeEmbedUrl(videoId: string, start: number): string {
+  const params = new URLSearchParams({
+    start: String(Math.max(0, Math.floor(start))),
+    rel: '0',
+    modestbranding: '1',
+  });
+  return `https://www.youtube.com/embed/${videoId}?${params}`;
+}
+
 export function NewsClipWisePlayer({
   initialState,
   date,
@@ -168,7 +196,7 @@ export function NewsClipWisePlayer({
           <input
             value={sourceUrl}
             onChange={(event) => setSourceUrl(event.target.value)}
-            placeholder="Paste public YouLearn space, folder, or playlist link"
+            placeholder="Paste YouLearn space, YouTube video, or YouTube playlist link"
             className="min-w-0 flex-1 rounded-2xl border-2 border-duo-border px-4 py-3 text-sm font-semibold text-duo-ink outline-none focus:border-duo-blue"
           />
           <button
@@ -196,7 +224,7 @@ export function NewsClipWisePlayer({
       <section className="space-y-4 rounded-[2rem] border-2 border-duo-border bg-white/70 p-3 shadow-card sm:p-4">
         {toolbar}
         <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-6 text-sm font-bold text-duo-mute">
-          No ClipWise videos imported yet. Use Import new space above to add a public YouLearn space.
+          No ClipWise videos imported yet. Use Import new space above to add a YouLearn space, YouTube video, or YouTube playlist.
         </div>
       </section>
     );
@@ -217,6 +245,7 @@ export function NewsClipWisePlayer({
   const bounds = clipBounds(activeClip, duration || video.durationSec);
   const doneCount = done.size;
   const pct = Math.round((doneCount / totalClips) * 100);
+  const ytVideoId = youtubeVideoId(video.url);
 
   function clipProgressPercent(index: number): number {
     if (done.has(index)) return 100;
@@ -335,19 +364,30 @@ export function NewsClipWisePlayer({
 
         <div className="space-y-3">
           <article className="card overflow-hidden">
-            <video
-              ref={videoRef}
-              controls
-              preload="metadata"
-              poster={video.thumbnail}
-              src={video.url}
-              className="aspect-video w-full bg-duo-ink object-cover"
-              onLoadedMetadata={(event) => {
-                setDuration(Math.round(event.currentTarget.duration || video.durationSec || 0));
-                setCurrentTime(event.currentTarget.currentTime || 0);
-              }}
-              onTimeUpdate={onTimeUpdate}
-            />
+            {ytVideoId ? (
+              <iframe
+                key={`${ytVideoId}:${activeClip}`}
+                src={youtubeEmbedUrl(ytVideoId, bounds.start)}
+                title={video.title}
+                className="aspect-video w-full bg-duo-ink"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            ) : (
+              <video
+                ref={videoRef}
+                controls
+                preload="metadata"
+                poster={video.thumbnail}
+                src={video.url}
+                className="aspect-video w-full bg-duo-ink object-cover"
+                onLoadedMetadata={(event) => {
+                  setDuration(Math.round(event.currentTarget.duration || video.durationSec || 0));
+                  setCurrentTime(event.currentTarget.currentTime || 0);
+                }}
+                onTimeUpdate={onTimeUpdate}
+              />
+            )}
             <div className="space-y-3 p-4">
               <div className="flex flex-wrap gap-2">
                 <span className="chip cursor-default">Clip {activeClip + 1} of {totalClips}</span>

@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   }
 
   if (typeof body.sourceUrl !== 'string' || !body.sourceUrl.trim()) {
-    return fail('Paste a public YouLearn space, folder, or playlist link.');
+    return fail('Paste a YouLearn space, YouTube video, or YouTube playlist link.');
   }
 
   try {
@@ -28,6 +28,6 @@ export async function POST(req: Request) {
     const state = await importNewsYouLearnSpace(session, body.sourceUrl, target);
     return NextResponse.json({ ok: true, state });
   } catch (error) {
-    return fail((error as Error).message || 'Could not import YouLearn videos.', 502);
+    return fail((error as Error).message || 'Could not import videos.', 502);
   }
 }
