@@ -721,6 +721,7 @@ export async function processDailyNewsYouLearnVideo(
     videoUrl: video.url,
     transcript,
     userPrompt: prompt,
+    noteKind,
   });
 
   const summary: NewsYouLearnVideoSummary = {

@@ -59,7 +59,7 @@ function getSummaryForVideo(
 
 function normalizeList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8);
+  return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 40);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -217,7 +217,7 @@ function recordList(value: unknown): Array<Record<string, unknown>> {
 
 function textList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.map((item) => primitiveText(item)).filter(Boolean).slice(0, 12);
+  return value.map((item) => primitiveText(item)).filter(Boolean).slice(0, 40);
 }
 
 function GenericValue({ value }: { value: unknown }) {
@@ -237,7 +237,7 @@ function GenericValue({ value }: { value: unknown }) {
     if (normalized.length === 0) return null;
     return (
       <ul className="space-y-2">
-        {normalized.slice(0, 16).map((item, index) => {
+        {normalized.slice(0, 60).map((item, index) => {
           const itemText = primitiveText(item);
           return (
             <li key={index} className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold leading-relaxed text-duo-ink shadow-sm">
@@ -479,7 +479,7 @@ function GenericSummary({ data }: { data: Record<string, unknown> }) {
 
   return (
     <div className="space-y-3">
-      {entries.slice(0, 12).map(([key, value], index) => (
+      {entries.slice(0, 40).map(([key, value], index) => (
         <section
           key={key}
           className={`rounded-3xl border-2 border-duo-border p-4 shadow-card ${
@@ -501,7 +501,7 @@ function TextSummary({ raw }: { raw: string }) {
     .split(/\n{2,}|(?<=\.)\s+(?=[A-Z0-9])/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(0, 12);
+    .slice(0, 60);
 
   return (
     <section className="rounded-3xl border-2 border-duo-border bg-white p-4 shadow-card">
@@ -532,7 +532,7 @@ function SummaryBlock({ summary }: { summary: NewsYouLearnVideoSummary }) {
   const keyPoints = normalizeList(obj.key_points ?? obj.keyPoints ?? obj.summary);
   const impacts = normalizeList(obj.why_it_matters ?? obj.whyItMatters ?? obj.impact);
   const notes = normalizeList(obj.revision_notes ?? obj.revisionNotes ?? obj.notes);
-  const terms = Array.isArray(obj.terms) ? obj.terms.slice(0, 8) : [];
+  const terms = Array.isArray(obj.terms) ? obj.terms.slice(0, 40) : [];
   const knownKeys = new Set([
     'title',
     'key_points',
