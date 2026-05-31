@@ -16,7 +16,7 @@ export async function PUT(req: Request) {
 
   let body: { prompt?: unknown; kind?: unknown };
   try {
-    body = (await req.json()) as { prompt?: unknown };
+    body = (await req.json()) as typeof body;
   } catch {
     return fail('Invalid JSON body.');
   }

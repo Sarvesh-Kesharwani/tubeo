@@ -259,7 +259,7 @@ export async function readUserSyncState(session: Session | null | undefined): Pr
 export async function writeUserSyncState(
   session: Session | null | undefined,
   store: DriveWriteState,
-  options: { mergeNewsYouLearn?: boolean } = {},
+  options: { mergeNewsYouLearn?: boolean; skipDriveBackup?: boolean } = {},
 ): Promise<SyncStoreWriteResult> {
   const identity = getTubeoUserIdentity(session);
   const accessToken = session?.accessToken;
@@ -267,17 +267,20 @@ export async function writeUserSyncState(
   let stateToWrite = store;
 
   if (identity && isSupabaseSyncConfigured()) {
-    const existing = await readSupabaseSyncState(identity);
-    if (options.mergeNewsYouLearn !== false) {
-      stateToWrite = mergeNewsYouLearnIntoStore(stateToWrite, existing);
-    }
-    if (
+    const needsExistingFallback =
       !stateToWrite.quota ||
       !stateToWrite.deepseekQuota ||
       !stateToWrite.quotaHistory ||
       !stateToWrite.deepseekQuotaHistory ||
-      !stateToWrite.newsYouLearn
-    ) {
+      !stateToWrite.newsYouLearn;
+    const existing =
+      options.mergeNewsYouLearn !== false || needsExistingFallback
+        ? await readSupabaseSyncState(identity)
+        : null;
+    if (options.mergeNewsYouLearn !== false) {
+      stateToWrite = mergeNewsYouLearnIntoStore(stateToWrite, existing);
+    }
+    if (needsExistingFallback) {
       stateToWrite = {
         ...stateToWrite,
         quota: stateToWrite.quota ?? existing?.quota,
@@ -295,7 +298,7 @@ export async function writeUserSyncState(
       await writeDriveChannels(accessToken, stateToWrite);
       return { state: null, source: 'drive', driveBackupOk: true };
     }
-    if (accessToken) {
+    if (accessToken && !options.skipDriveBackup) {
       try {
         await writeDriveChannels(accessToken, stateToWrite);
         driveBackupOk = true;

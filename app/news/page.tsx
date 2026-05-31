@@ -92,7 +92,7 @@ export default async function NewsPage({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://dialog-dungeon.vercel.app/favicon.ico"
+              src="https://dialog-dungeon.vercel.app/favicon.svg"
               alt=""
               className="h-5 w-5 rounded-md"
             />

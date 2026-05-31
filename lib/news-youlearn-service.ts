@@ -23,7 +23,7 @@ import {
   upsertDailyUpscClipWiseRecord,
   type DailyUpscClipWiseCategory,
 } from './supabase-daily-upsc-clipwise';
-import { getTubeoUserIdentity } from './supabase-sync';
+import { getTubeoUserIdentity, isSupabaseSyncConfigured, readSupabaseSyncState } from './supabase-sync';
 import {
   fetchYouLearnSpaceVideos,
   fetchYouLearnTranscript,
@@ -381,17 +381,37 @@ export async function saveNewsYouLearnPrompt(
   prompt: string,
   noteKind: NewsYouLearnNoteKind = 'layered',
 ): Promise<NewsYouLearnState> {
-  const state = await readNewsYouLearnState(session);
+  const identity = getTubeoUserIdentity(session);
+  const syncState =
+    identity && isSupabaseSyncConfigured()
+      ? await readSupabaseSyncState(identity)
+      : (await readUserSyncState(session)).state;
+  const state = syncState?.newsYouLearn ?? emptyNewsYouLearnState();
   const now = new Date().toISOString();
   const trimmed = prompt.slice(0, 8000);
+  const base = storeFromState(syncState);
+  const writePromptState = (next: NewsYouLearnState) =>
+    writeUserSyncState(
+      session,
+      {
+        ...base,
+        newsYouLearn: next,
+        quota: syncState?.quota,
+        deepseekQuota: syncState?.deepseekQuota,
+        quotaHistory: syncState?.quotaHistory,
+        deepseekQuotaHistory: syncState?.deepseekQuotaHistory,
+      },
+      { mergeNewsYouLearn: false, skipDriveBackup: Boolean(identity && isSupabaseSyncConfigured()) },
+    ).then((result) => result.state?.newsYouLearn ?? next);
+
   if (noteKind === 'analogy') {
-    return writeNewsYouLearnState(session, {
+    return writePromptState({
       ...state,
       analogyPrompt: trimmed,
       analogyPromptUpdatedAt: now,
     });
   }
-  return writeNewsYouLearnState(session, {
+  return writePromptState({
     ...state,
     prompt: trimmed,
     promptUpdatedAt: now,
