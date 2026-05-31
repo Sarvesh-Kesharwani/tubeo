@@ -37,7 +37,7 @@ function promptHash(prompt: string): string {
 }
 
 const DEFAULT_ANALOGY_PROMPT =
-  'Convert this YouLearn transcript into strict JSON for analogy-based UPSC notes. Shape: {"title":"...","core_analogy":"...","analogy_map":[{"source":"...","target":"...","explanation":"..."}],"key_points":["..."],"exam_takeaways":["..."],"revision_notes":["..."]}. Use Hinglish. Make abstract ideas simple through real-life analogies. Return JSON only.';
+  'Explain the topics covered in this lecture through simple analogies in Hinglish. Identify every distinct topic/subtopic and explain each one with a real-life analogy. Make abstract ideas simple and easy to remember for UPSC exam revision.';
 
 const DEFAULT_LAYERED_PROMPT =
   'Convert this YouLearn transcript into strict JSON for layered UPSC notes. Shape: {"layer0":{"goal":"...","roadmap":["..."]},"layer1":{"terms":[{"term":"...","definition":"..."}],"events":[{"event":"...","description":"..."}]},"layer2":{"concepts":[{"concept":"...","explanation":"..."}]},"layer3":{"geopolitical_landscape":["..."]},"layer4":{"stakeholders":["..."]},"layer5":{"timeline":["..."]},"layer6":{"outcomes":["..."]},"layer7":{"connections":["..."]}}. Use Hinglish. Return JSON only.';

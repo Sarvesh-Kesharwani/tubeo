@@ -598,11 +598,16 @@ export async function summarizeYouLearnNewsTranscript({
   const prompt = userPrompt.trim() || DEFAULT_YOULEARN_NEWS_VIDEO_PROMPT;
   const analogyContract =
     noteKind === 'analogy'
-      ? ' This is analogy notes, not a short summary. Identify every distinct topic/subtopic covered in the transcript and explain each one with the requested analogy style. Return JSON with shape {"title":"...","main_analogy":"...","topics":[{"topic":"...","lecture_context":"...","analogy_explanation":"...","exam_takeaway":"..."}],"revision_notes":["..."]}. Make topics comprehensive; do not collapse the lecture into one paragraph.'
+      ? ' This is analogy notes, not a short summary. Identify every distinct topic/subtopic covered in the transcript and explain each one with the requested analogy style. Return JSON with shape {"title":"...","main_analogy":"...","topics":[{"topic_index":1,"topic":"...","lecture_context":"...","analogy_explanation":"...","exam_takeaway":"..."}],"revision_notes":["..."]}. Preserve every numbered/indexed topic from the lecture. If the transcript has index 1, index 2, index 3, etc., all of them must appear as separate topics. Make topics comprehensive; do not collapse the lecture into one paragraph.'
       : '';
+  const styleGuidance =
+    noteKind === 'analogy'
+      ? 'Follow only the stylistic and language preferences from the user prompt (Hinglish, analogy style, etc.). The output JSON structure must follow the contract below, not the user prompt structure. '
+      : 'Follow the user prompt exactly. ';
   const baseSystem =
     'You process one daily YouLearn news/current-affairs video transcript for a learner. ' +
-    'Follow the user prompt exactly. Return strict JSON only. No markdown, no preamble. ' +
+    styleGuidance +
+    'Return strict JSON only. No markdown, no preamble. ' +
     analogyContract +
     `User prompt: ${prompt}`;
   const baseUser = {
@@ -636,7 +641,7 @@ export async function summarizeYouLearnNewsTranscript({
       baseSystem +
       ' This is one transcript chunk, not the full video. Extract only useful notes from this chunk. ' +
       (noteKind === 'analogy'
-        ? 'List all topics in this chunk with analogy explanations; avoid over-compressing.'
+        ? 'List all topics in this chunk with analogy explanations; preserve any visible topic/index numbers; avoid over-compressing.'
         : 'Use compact JSON so all important points fit.');
     const chunkUser = JSON.stringify({
       ...baseUser,
@@ -657,10 +662,9 @@ export async function summarizeYouLearnNewsTranscript({
 
   const mergeSystem =
     'You merge chunk-level YouLearn transcript notes into one final study note. ' +
-    'Follow the original user prompt exactly for output shape and language. ' +
     (noteKind === 'analogy'
-      ? 'Deduplicate repeated ideas, preserve all distinct topics, keep topic-by-topic analogy explanations detailed, and return strict JSON only. '
-      : 'Deduplicate repeated ideas, preserve chronology when useful, keep it concise, and return strict JSON only. ') +
+      ? 'Output JSON structure must follow the analogy contract. Follow only the stylistic and language preferences from the original user prompt. Deduplicate repeated ideas, preserve all distinct topics and all visible topic/index numbers, keep topic-by-topic analogy explanations detailed, and return strict JSON only. Do not drop a later topic/index merely because earlier topics already explain the analogy. '
+      : 'Follow the original user prompt exactly for output shape and language. Deduplicate repeated ideas, preserve chronology when useful, keep it concise, and return strict JSON only. ') +
     `Original user prompt: ${prompt}`;
   const mergeUser = JSON.stringify({
     date,
