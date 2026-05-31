@@ -163,14 +163,47 @@ function normalizeJsonLike(value: unknown): unknown {
   return value;
 }
 
+function unwrapChunkedSummary(value: unknown): unknown {
+  const normalized = normalizeJsonLike(value);
+  if (!isRecord(normalized)) return normalized;
+
+  const mode = primitiveText(normalized.mode).toLowerCase();
+  const merged = normalized.merged;
+  if (mode !== 'chunked' || merged === undefined || merged === null) return normalized;
+
+  if (typeof merged === 'string') {
+    const parsed = parseJsonLikeString(merged);
+    return parsed ? normalizeJsonLike(parsed) : normalized;
+  }
+
+  return normalizeJsonLike(merged);
+}
+
 function parseSummaryData(summary: NewsYouLearnVideoSummary): unknown {
-  const normalizedData = normalizeJsonLike(summary.data);
-  if (isRecord(normalizedData)) return normalizedData;
+  const normalizedData = unwrapChunkedSummary(summary.data);
+  if (isRecord(normalizedData) && Object.keys(normalizedData).length > 0) return normalizedData;
   if (typeof normalizedData === 'string') {
     const parsed = parseJsonLikeString(normalizedData);
-    if (parsed) return normalizeJsonLike(parsed);
+    if (parsed) return unwrapChunkedSummary(parsed);
   }
-  return normalizeJsonLike(parseRawJson(summary.raw));
+  return unwrapChunkedSummary(parseRawJson(summary.raw));
+}
+
+function parseChunkedSummaryChunks(raw: string): Array<{ index: number; data: unknown }> {
+  const parsed = normalizeJsonLike(parseRawJson(raw));
+  if (!isRecord(parsed) || primitiveText(parsed.mode).toLowerCase() !== 'chunked' || !Array.isArray(parsed.chunks)) {
+    return [];
+  }
+
+  return parsed.chunks
+    .map((chunk, fallbackIndex) => {
+      if (!isRecord(chunk)) return null;
+      const rawIndex = typeof chunk.index === 'number' ? chunk.index : Number(primitiveText(chunk.index));
+      const index = Number.isFinite(rawIndex) && rawIndex > 0 ? rawIndex : fallbackIndex + 1;
+      const rawData = typeof chunk.raw === 'string' ? (parseJsonLikeString(chunk.raw) ?? chunk.raw) : (chunk.data ?? chunk);
+      return { index, data: normalizeJsonLike(rawData) };
+    })
+    .filter((chunk): chunk is { index: number; data: unknown } => Boolean(chunk));
 }
 
 function downloadProcessedTranscript(summary: NewsYouLearnVideoSummary) {
@@ -494,6 +527,217 @@ function GenericSummary({ data }: { data: Record<string, unknown> }) {
   );
 }
 
+const ANALOGY_TOPIC_LIST_KEYS = [
+  'topics',
+  'analogy_topics',
+  'analogyTopics',
+  'sections',
+  'items',
+  'analogy_map',
+  'analogyMap',
+];
+
+const ANALOGY_TOPIC_KEYS = [
+  'topic_index',
+  'index',
+  'topic',
+  'title',
+  'lecture_context',
+  'context',
+  'summary',
+  'analogy_explanation',
+  'analogy',
+  'explanation',
+  'exam_takeaway',
+  'takeaway',
+  'revision_note',
+  'source',
+  'target',
+  'chunk_index',
+  'chunkIndex',
+];
+
+function isAnalogyTopicRecord(value: Record<string, unknown>): boolean {
+  const hasTopicText =
+    primitiveText(value.topic) ||
+    primitiveText(value.lecture_context) ||
+    primitiveText(value.analogy_explanation) ||
+    primitiveText(value.exam_takeaway);
+  const hasAnalogyMapText = primitiveText(value.source) && primitiveText(value.target) && primitiveText(value.explanation);
+  return Boolean(hasTopicText || hasAnalogyMapText);
+}
+
+function extractAnalogyTopics(value: unknown, chunkIndex?: number): Array<Record<string, unknown>> {
+  const normalized = normalizeJsonLike(value);
+  if (!isRecord(normalized)) return [];
+
+  const direct: Array<Record<string, unknown>> = [];
+  for (const key of ANALOGY_TOPIC_LIST_KEYS) {
+    const list = normalized[key];
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (!isRecord(item)) continue;
+      direct.push(chunkIndex ? { chunk_index: chunkIndex, ...item } : item);
+    }
+  }
+
+  if (direct.length > 0) return direct;
+  if (isAnalogyTopicRecord(normalized)) {
+    return [chunkIndex ? { chunk_index: chunkIndex, ...normalized } : normalized];
+  }
+
+  return [];
+}
+
+function analogyTopicIdentity(topic: Record<string, unknown>, fallbackIndex: number): string {
+  const explicitIndex = primitiveText(topic.topic_index) || primitiveText(topic.index);
+  if (explicitIndex) return `index:${explicitIndex}`;
+
+  const title =
+    primitiveText(topic.topic) ||
+    primitiveText(topic.title) ||
+    [primitiveText(topic.source), primitiveText(topic.target)].filter(Boolean).join(' -> ');
+  const analogy = primitiveText(topic.analogy_explanation) || primitiveText(topic.analogy) || primitiveText(topic.explanation);
+  return `${title}|${analogy}`.trim().toLowerCase() || `fallback:${fallbackIndex}`;
+}
+
+function mergeAnalogyTopics(
+  primary: Array<Record<string, unknown>>,
+  fallback: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  const merged: Array<Record<string, unknown>> = [];
+
+  for (const topic of [...primary, ...fallback]) {
+    const key = analogyTopicIdentity(topic, merged.length);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(topic);
+  }
+
+  return merged;
+}
+
+function AnalogySummary({
+  data,
+  fallbackTitle,
+  chunkFallbacks = [],
+}: {
+  data: Record<string, unknown>;
+  fallbackTitle: string;
+  chunkFallbacks?: Array<{ index: number; data: unknown }>;
+}) {
+  const title = primitiveText(data.title) || fallbackTitle;
+  const mainAnalogy = primitiveText(data.main_analogy) || primitiveText(data.mainAnalogy) || primitiveText(data.core_analogy);
+  const topics = mergeAnalogyTopics(
+    extractAnalogyTopics(data),
+    chunkFallbacks.flatMap((chunk) => extractAnalogyTopics(chunk.data, chunk.index)),
+  );
+  const revisionNotes = normalizeList(data.revision_notes ?? data.revisionNotes ?? data.notes);
+  const knownKeys = new Set([
+    'title',
+    'main_analogy',
+    'mainAnalogy',
+    'core_analogy',
+    'topics',
+    'revision_notes',
+    'revisionNotes',
+    'notes',
+    'index',
+    'chunk_index',
+    'chunkIndex',
+    'chunkCount',
+    'chunkTokenBudget',
+    'mode',
+    'merged',
+    'chunks',
+  ]);
+  const extras = Object.fromEntries(Object.entries(data).filter(([key]) => !knownKeys.has(key)));
+
+  return (
+    <div className="space-y-3">
+      <section className="rounded-3xl border-2 border-duo-blue/25 bg-duo-blue/10 p-4 shadow-card">
+        <p className="text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">Analogy notes</p>
+        <h3 className="mt-1 text-lg font-extrabold leading-tight text-duo-ink">{title}</h3>
+        {mainAnalogy && (
+          <p className="mt-3 rounded-2xl bg-white px-3 py-2 text-sm font-semibold leading-relaxed text-duo-ink">
+            {mainAnalogy}
+          </p>
+        )}
+      </section>
+
+      {topics.length > 0 && (
+        <section className="space-y-3">
+          {topics.map((topic, index) => {
+            const topicIndex = primitiveText(topic.topic_index) || primitiveText(topic.index) || String(index + 1);
+            const mappedTitle = [primitiveText(topic.source), primitiveText(topic.target)].filter(Boolean).join(' -> ');
+            const topicTitle = primitiveText(topic.topic) || primitiveText(topic.title) || mappedTitle || `Topic ${topicIndex}`;
+            const lectureContext =
+              primitiveText(topic.lecture_context) || primitiveText(topic.context) || primitiveText(topic.summary);
+            const analogy =
+              primitiveText(topic.analogy_explanation) || primitiveText(topic.analogy) || primitiveText(topic.explanation);
+            const takeaway =
+              primitiveText(topic.exam_takeaway) || primitiveText(topic.takeaway) || primitiveText(topic.revision_note);
+            const chunkLabel = primitiveText(topic.chunk_index) || primitiveText(topic.chunkIndex);
+            const topicExtras = Object.fromEntries(
+              Object.entries(topic).filter(
+                ([key]) => !ANALOGY_TOPIC_KEYS.includes(key),
+              ),
+            );
+
+            return (
+              <article key={`${topicIndex}-${topicTitle}-${index}`} className="rounded-3xl border-2 border-duo-border bg-white p-4 shadow-card">
+                <div className="flex flex-wrap items-start gap-3">
+                  <span className="rounded-full bg-duo-blue px-3 py-1 text-xs font-extrabold text-white shadow-duoBlue">
+                    {topicIndex}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-base font-extrabold text-duo-ink">{topicTitle}</h4>
+                    {lectureContext && <p className="mt-2 text-sm font-semibold leading-relaxed text-duo-mute">{lectureContext}</p>}
+                    {chunkLabel && (
+                      <p className="mt-1 text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">
+                        Chunk {chunkLabel}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {analogy && (
+                  <div className="mt-3 rounded-2xl bg-duo-soft/70 px-3 py-2 text-sm font-semibold leading-relaxed text-duo-ink">
+                    {analogy}
+                  </div>
+                )}
+                {takeaway && (
+                  <div className="mt-2 rounded-2xl border-2 border-duo-green/20 bg-duo-green/10 px-3 py-2 text-sm font-semibold leading-relaxed text-duo-greenDark">
+                    {takeaway}
+                  </div>
+                )}
+                {Object.keys(topicExtras).length > 0 && (
+                  <div className="mt-3">
+                    <GenericValue value={topicExtras} />
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </section>
+      )}
+
+      {revisionNotes.length > 0 && (
+        <section className="rounded-3xl border-2 border-duo-border bg-duo-yellow/20 p-4">
+          <h4 className="mb-2 text-sm font-extrabold text-duo-blueDark">Revision notes</h4>
+          <ol className="list-decimal space-y-1 pl-5 text-sm font-semibold leading-relaxed text-duo-ink">
+            {revisionNotes.map((note, index) => (
+              <li key={index}>{note}</li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {Object.keys(extras).length > 0 && <GenericSummary data={extras} />}
+    </div>
+  );
+}
+
 function TextSummary({ raw }: { raw: string }) {
   const blocks = raw
     .replace(/^```(?:json)?\s*/i, '')
@@ -526,6 +770,10 @@ function SummaryBlock({ summary }: { summary: NewsYouLearnVideoSummary }) {
   const obj = data;
   if (hasLayerShape(obj)) {
     return <LayeredSummary data={obj} fallbackTitle={summary.videoTitle} />;
+  }
+
+  if ((summary.noteKind ?? 'layered') === 'analogy') {
+    return <AnalogySummary data={obj} fallbackTitle={summary.videoTitle} chunkFallbacks={parseChunkedSummaryChunks(summary.raw)} />;
   }
 
   const title = typeof obj.title === 'string' ? obj.title : summary.videoTitle;
