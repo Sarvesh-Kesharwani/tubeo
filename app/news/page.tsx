@@ -4,7 +4,6 @@ import { DurationFilter } from '@/components/DurationFilter';
 import { EmptyState } from '@/components/EmptyState';
 import { MediaTypeFilter } from '@/components/MediaTypeFilter';
 import { NewsPromptEditor } from '@/components/NewsPromptEditor';
-import { NewsClipWisePlayer } from '@/components/NewsClipWisePlayer';
 import { NewsSummaryCard } from '@/components/NewsSummaryCard';
 import { NewsYouLearnDaily } from '@/components/NewsYouLearnDaily';
 import { TimeFilter } from '@/components/TimeFilter';
@@ -127,15 +126,6 @@ export default async function NewsPage({
       </NewsSectionBlock>
 
       <NewsSectionBlock
-        title="ClipWise practice"
-        tone="blue"
-      >
-        <Suspense fallback={<SummarySkeleton />}>
-          <NewsClipWiseSection date={selectedDate} />
-        </Suspense>
-      </NewsSectionBlock>
-
-      <NewsSectionBlock
         title="YouTube channels"
         description={`Videos from channels assigned to the "${NEWS_SPACE}" space.`}
         tone="green"
@@ -216,26 +206,6 @@ async function NewsYouLearnSection({ date }: { date?: string }) {
     const activeDate = date ?? istDateString();
     const state = await readNewsYouLearnState(session);
     return <NewsYouLearnDaily initialState={state} date={activeDate} />;
-  } catch {
-    return null;
-  }
-}
-
-async function NewsClipWiseSection({ date }: { date?: string }) {
-  try {
-    const session = await getSession();
-    if (!session?.user) {
-      return (
-        <EmptyState
-          emoji="CW"
-          title="Sign in to use ClipWise practice"
-          description="Tubeo can turn imported YouLearn videos into 2 minute ClipWise-style clips."
-        />
-      );
-    }
-    const activeDate = date ?? istDateString();
-    const state = await readNewsYouLearnState(session);
-    return <NewsClipWisePlayer initialState={state} date={activeDate} />;
   } catch {
     return null;
   }

@@ -33,7 +33,9 @@ function hasNewsYouLearnData(state: DriveSyncState['newsYouLearn'] | null | unde
     Object.keys(state.clipwiseProgress ?? {}).length > 0 ||
     Boolean(state.sourceUrl.trim()) ||
     Boolean(state.clipwiseSourceUrl?.trim()) ||
-    Boolean(state.prompt.trim())
+    Boolean(state.prompt.trim()) ||
+    Boolean(state.analogyPrompt?.trim()) ||
+    Boolean(state.layeredPrompt?.trim())
   );
 }
 
@@ -122,6 +124,26 @@ function newerImportMeta(
   return { url: existingUrl?.trim() ?? '', importedAt: existingAt ?? new Date(0).toISOString() };
 }
 
+function newerTextField(
+  incomingValue: string | undefined,
+  incomingAt: string | undefined,
+  existingValue: string | undefined,
+  existingAt: string | undefined,
+): { value: string; updatedAt: string } {
+  const incomingTime = fieldTime(incomingAt);
+  const existingTime = fieldTime(existingAt);
+  if (incomingTime >= existingTime || !existingValue?.trim()) {
+    return {
+      value: incomingValue ?? '',
+      updatedAt: incomingAt ?? new Date(0).toISOString(),
+    };
+  }
+  return {
+    value: existingValue ?? '',
+    updatedAt: existingAt ?? new Date(0).toISOString(),
+  };
+}
+
 function mergeNewsYouLearn(
   incoming: DriveWriteState['newsYouLearn'],
   existing: DriveSyncState['newsYouLearn'] | null | undefined,
@@ -136,19 +158,31 @@ function mergeNewsYouLearn(
     existing?.clipwiseSourceUrl,
     existing?.clipwiseImportedAt,
   );
-  const incomingPromptTime = fieldTime(incoming?.promptUpdatedAt);
-  const existingPromptTime = fieldTime(existing?.promptUpdatedAt);
-  const useIncomingPrompt = incomingPromptTime >= existingPromptTime || !existing?.prompt?.trim();
+  const prompt = newerTextField(incoming?.prompt, incoming?.promptUpdatedAt, existing?.prompt, existing?.promptUpdatedAt);
+  const analogyPrompt = newerTextField(
+    incoming?.analogyPrompt,
+    incoming?.analogyPromptUpdatedAt,
+    existing?.analogyPrompt,
+    existing?.analogyPromptUpdatedAt,
+  );
+  const layeredPrompt = newerTextField(
+    incoming?.layeredPrompt,
+    incoming?.layeredPromptUpdatedAt,
+    existing?.layeredPrompt,
+    existing?.layeredPromptUpdatedAt,
+  );
 
   return {
     sourceUrl: source.url,
     importedAt: source.importedAt,
     clipwiseSourceUrl: clipwiseSource.url,
     clipwiseImportedAt: clipwiseSource.importedAt,
-    prompt: useIncomingPrompt ? incoming?.prompt ?? '' : existing?.prompt ?? '',
-    promptUpdatedAt: useIncomingPrompt
-      ? incoming?.promptUpdatedAt ?? new Date(0).toISOString()
-      : existing?.promptUpdatedAt ?? new Date(0).toISOString(),
+    prompt: prompt.value,
+    promptUpdatedAt: prompt.updatedAt,
+    analogyPrompt: analogyPrompt.value,
+    analogyPromptUpdatedAt: analogyPrompt.updatedAt,
+    layeredPrompt: layeredPrompt.value,
+    layeredPromptUpdatedAt: layeredPrompt.updatedAt,
     videos: mergeVideoList(incoming?.videos, existing?.videos),
     clipwiseVideos: mergeVideoList(incoming?.clipwiseVideos, existing?.clipwiseVideos),
     summaries: mergeSummaries(incoming?.summaries, existing?.summaries),

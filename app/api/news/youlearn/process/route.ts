@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session?.user) return fail('Sign in to process YouLearn video.', 401);
 
-  let body: { date?: unknown; force?: unknown; videoId?: unknown; videos?: unknown };
+  let body: { date?: unknown; force?: unknown; videoId?: unknown; videos?: unknown; noteKind?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -22,12 +22,14 @@ export async function POST(req: Request) {
 
   const date = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : istDateString();
   const videoId = typeof body.videoId === 'string' && body.videoId.trim() ? body.videoId.trim() : undefined;
+  const noteKind = body.noteKind === 'analogy' ? 'analogy' : 'layered';
 
   try {
     const result = await processDailyNewsYouLearnVideo(session, date, {
       force: Boolean(body.force),
       videoId,
       fallbackVideos: Array.isArray(body.videos) ? body.videos : undefined,
+      noteKind,
     });
     return NextResponse.json({ ok: true, state: result.state, summary: result.summary });
   } catch (error) {

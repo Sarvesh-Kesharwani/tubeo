@@ -176,6 +176,7 @@ function normalizeNewsYouLearnSummary(value: unknown): NewsYouLearnVideoSummary 
     videoTitle: typeof item.videoTitle === 'string' && item.videoTitle.trim() ? item.videoTitle.trim() : 'YouLearn video',
     videoUrl: typeof item.videoUrl === 'string' ? item.videoUrl.trim() : '',
     thumbnail: typeof item.thumbnail === 'string' && item.thumbnail.trim() ? item.thumbnail.trim() : undefined,
+    noteKind: item.noteKind === 'analogy' ? 'analogy' : 'layered',
     data: item.data ?? null,
     raw: typeof item.raw === 'string' ? item.raw : '',
     promptHash: typeof item.promptHash === 'string' ? item.promptHash : '',
@@ -191,6 +192,10 @@ export function emptyNewsYouLearnState(): NewsYouLearnState {
     clipwiseImportedAt: new Date(0).toISOString(),
     prompt: '',
     promptUpdatedAt: new Date(0).toISOString(),
+    analogyPrompt: '',
+    analogyPromptUpdatedAt: new Date(0).toISOString(),
+    layeredPrompt: '',
+    layeredPromptUpdatedAt: new Date(0).toISOString(),
     videos: [],
     clipwiseVideos: [],
     summaries: {},
@@ -199,8 +204,8 @@ export function emptyNewsYouLearnState(): NewsYouLearnState {
   };
 }
 
-function newsYouLearnSummaryKey(date: string, videoId: string): string {
-  return `${date}:${videoId}`;
+function newsYouLearnSummaryKey(date: string, videoId: string, noteKind: 'analogy' | 'layered' = 'layered'): string {
+  return `${noteKind}:${date}:${videoId}`;
 }
 
 function normalizeNewsYouLearnSelections(value: unknown, videoIds: Set<string>): Record<string, string> {
@@ -280,7 +285,7 @@ function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefine
   if (value.summaries && typeof value.summaries === 'object') {
     for (const raw of Object.values(value.summaries)) {
       const summary = normalizeNewsYouLearnSummary(raw);
-      if (summary) summaries[newsYouLearnSummaryKey(summary.date, summary.videoId)] = summary;
+      if (summary) summaries[newsYouLearnSummaryKey(summary.date, summary.videoId, summary.noteKind)] = summary;
     }
   }
 
@@ -303,6 +308,16 @@ function normalizeNewsYouLearnState(value: Partial<NewsYouLearnState> | undefine
     promptUpdatedAt:
       typeof value.promptUpdatedAt === 'string' && value.promptUpdatedAt.trim()
         ? value.promptUpdatedAt
+        : new Date(0).toISOString(),
+    analogyPrompt: typeof value.analogyPrompt === 'string' ? value.analogyPrompt.slice(0, 8000) : '',
+    analogyPromptUpdatedAt:
+      typeof value.analogyPromptUpdatedAt === 'string' && value.analogyPromptUpdatedAt.trim()
+        ? value.analogyPromptUpdatedAt
+        : new Date(0).toISOString(),
+    layeredPrompt: typeof value.layeredPrompt === 'string' ? value.layeredPrompt.slice(0, 8000) : '',
+    layeredPromptUpdatedAt:
+      typeof value.layeredPromptUpdatedAt === 'string' && value.layeredPromptUpdatedAt.trim()
+        ? value.layeredPromptUpdatedAt
         : new Date(0).toISOString(),
     videos,
     clipwiseVideos,

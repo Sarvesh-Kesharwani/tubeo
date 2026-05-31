@@ -1,7 +1,19 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { NewsYouLearnState, NewsYouLearnVideo, NewsYouLearnVideoSummary } from '@/lib/types';
+import type { NewsYouLearnNoteKind, NewsYouLearnState, NewsYouLearnVideo, NewsYouLearnVideoSummary } from '@/lib/types';
+
+const NOTE_KIND_LABELS: Record<NewsYouLearnNoteKind, string> = {
+  analogy: 'Analogy',
+  layered: 'Layered',
+};
+
+const DEFAULT_PROMPT_TEXT: Record<NewsYouLearnNoteKind, string> = {
+  analogy:
+    'Convert this YouLearn transcript into strict JSON for analogy-based UPSC notes. Shape: {"title":"...","core_analogy":"...","analogy_map":[{"source":"...","target":"...","explanation":"..."}],"key_points":["..."],"exam_takeaways":["..."],"revision_notes":["..."]}. Use Hinglish. Make abstract ideas simple through real-life analogies. Return JSON only.',
+  layered:
+    'Convert this YouLearn transcript into strict JSON for layered UPSC notes. Shape: {"layer0":{"goal":"...","roadmap":["..."]},"layer1":{"terms":[{"term":"...","definition":"..."}],"events":[{"event":"...","description":"..."}]},"layer2":{"concepts":[{"concept":"...","explanation":"..."}]},"layer3":{"geopolitical_landscape":["..."]},"layer4":{"stakeholders":["..."]},"layer5":{"timeline":["..."]},"layer6":{"outcomes":["..."]},"layer7":{"connections":["..."]}}. Use Hinglish. Return JSON only.',
+};
 
 function pickDaily(videos: NewsYouLearnVideo[], date: string): NewsYouLearnVideo | null {
   if (videos.length === 0) return null;
@@ -19,8 +31,8 @@ function formatDuration(seconds: number): string {
   return `${hours}:${String(mins % 60).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-function summaryKey(date: string, videoId: string): string {
-  return `${date}:${videoId}`;
+function summaryKey(date: string, videoId: string, noteKind: NewsYouLearnNoteKind): string {
+  return `${noteKind}:${date}:${videoId}`;
 }
 
 function fileSafe(value: string): string {
@@ -36,8 +48,13 @@ function getSummaryForVideo(
   summaries: NewsYouLearnState['summaries'],
   date: string,
   videoId: string,
+  noteKind: NewsYouLearnNoteKind,
 ): NewsYouLearnVideoSummary | null {
-  return summaries[summaryKey(date, videoId)] ?? (summaries[date]?.videoId === videoId ? summaries[date] : null);
+  return (
+    summaries[summaryKey(date, videoId, noteKind)] ??
+    (noteKind === 'layered' && summaries[`${date}:${videoId}`]?.videoId === videoId ? summaries[`${date}:${videoId}`] : null) ??
+    (noteKind === 'layered' && summaries[date]?.videoId === videoId ? summaries[date] : null)
+  );
 }
 
 function normalizeList(value: unknown): string[] {
@@ -166,6 +183,7 @@ function downloadProcessedTranscript(summary: NewsYouLearnVideoSummary) {
       url: summary.videoUrl,
       thumbnail: summary.thumbnail,
     },
+    noteKind: summary.noteKind ?? 'layered',
     generatedAt: summary.generatedAt,
     promptHash: summary.promptHash,
     processedTranscript: processed ?? summary.raw,
@@ -175,7 +193,7 @@ function downloadProcessedTranscript(summary: NewsYouLearnVideoSummary) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `youlearn-${summary.date}-${fileSafe(summary.videoTitle) || summary.videoId}.json`;
+  link.download = `youlearn-${summary.noteKind ?? 'layered'}-${summary.date}-${fileSafe(summary.videoTitle) || summary.videoId}.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -606,13 +624,17 @@ export function NewsYouLearnDaily({
   date: string;
 }) {
   const [state, setState] = useState(initialState);
-  const [busy, setBusy] = useState<'process' | 'force' | 'complete' | 'import' | 'prompt' | null>(null);
+  const [busy, setBusy] = useState<'analogy' | 'layered' | 'complete' | 'import' | 'prompt-analogy' | 'prompt-layered' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
-  const [showPrompt, setShowPrompt] = useState(false);
+  const [promptEditor, setPromptEditor] = useState<NewsYouLearnNoteKind | null>(null);
   const [sourceUrl, setSourceUrl] = useState(initialState.sourceUrl);
-  const [prompt, setPrompt] = useState(initialState.prompt);
+  const [prompts, setPrompts] = useState<Record<NewsYouLearnNoteKind, string>>({
+    analogy: initialState.analogyPrompt ?? '',
+    layered: initialState.layeredPrompt || initialState.prompt,
+  });
+  const [activeNoteKind, setActiveNoteKind] = useState<NewsYouLearnNoteKind>('layered');
   const dailyVideo = useMemo(() => pickDaily(state.videos, date), [state.videos, date]);
   const [selectedVideoId, setSelectedVideoId] = useState(
     initialState.selectedVideoIds?.[date] || initialState.summaries[date]?.videoId || dailyVideo?.id || '',
@@ -621,7 +643,7 @@ export function NewsYouLearnDaily({
     () => state.videos.find((video) => video.id === selectedVideoId) ?? dailyVideo,
     [dailyVideo, selectedVideoId, state.videos],
   );
-  const summary = selectedVideo ? getSummaryForVideo(state.summaries, date, selectedVideo.id) : null;
+  const summary = selectedVideo ? getSummaryForVideo(state.summaries, date, selectedVideo.id, activeNoteKind) : null;
 
   async function importSource() {
     setBusy('import');
@@ -647,26 +669,26 @@ export function NewsYouLearnDaily({
     }
   }
 
-  async function savePrompt() {
-    setBusy('prompt');
+  async function savePrompt(kind: NewsYouLearnNoteKind) {
+    const nextPrompt = prompts[kind];
+    setBusy(kind === 'analogy' ? 'prompt-analogy' : 'prompt-layered');
     setError(null);
     setMessage(null);
     try {
       const res = await fetch('/api/news/youlearn/prompt', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt: nextPrompt, kind }),
       });
-      const data = (await res.json()) as { ok?: boolean; prompt?: string; updatedAt?: string; error?: string };
+      const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; prompt?: string; updatedAt?: string; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error || 'Could not save prompt.');
-      setState((current) => ({
+      if (data.state) setState(data.state);
+      setPrompts((current) => ({
         ...current,
-        prompt: data.prompt ?? prompt,
-        promptUpdatedAt: data.updatedAt ?? new Date().toISOString(),
+        [kind]: data.prompt ?? nextPrompt,
       }));
-      setPrompt(data.prompt ?? prompt);
-      setMessage('Prompt saved.');
-      setShowPrompt(false);
+      setMessage(`${NOTE_KIND_LABELS[kind]} prompt saved.`);
+      setPromptEditor(null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -674,15 +696,17 @@ export function NewsYouLearnDaily({
     }
   }
 
-  async function processVideo(force = false) {
+  async function processVideo(kind: NewsYouLearnNoteKind) {
     if (!selectedVideo) return;
-    setBusy(force ? 'force' : 'process');
+    const existingSummary = getSummaryForVideo(state.summaries, date, selectedVideo.id, kind);
+    setBusy(kind);
+    setActiveNoteKind(kind);
     setError(null);
     try {
       const res = await fetch('/api/news/youlearn/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, force, videoId: selectedVideo.id, videos: state.videos }),
+        body: JSON.stringify({ date, force: Boolean(existingSummary), noteKind: kind, videoId: selectedVideo.id, videos: state.videos }),
       });
       const data = (await res.json()) as { ok?: boolean; state?: NewsYouLearnState; error?: string };
       if (!res.ok || !data.ok || !data.state) throw new Error(data.error || 'Processing failed.');
@@ -714,48 +738,54 @@ export function NewsYouLearnDaily({
     }
   }
 
+  const analogySummary = selectedVideo ? getSummaryForVideo(state.summaries, date, selectedVideo.id, 'analogy') : null;
+  const layeredSummary = selectedVideo ? getSummaryForVideo(state.summaries, date, selectedVideo.id, 'layered') : null;
+  const activePrompt = promptEditor ? prompts[promptEditor] : '';
+  const savedPrompt =
+    promptEditor === 'analogy'
+      ? state.analogyPrompt ?? ''
+      : promptEditor === 'layered'
+        ? state.layeredPrompt || state.prompt
+        : '';
+
   return (
-    <section className="space-y-4 rounded-[2rem] border-2 border-duo-border bg-white/70 p-3 shadow-card sm:p-4">
+    <section className="space-y-3 rounded-[2rem] border-2 border-duo-border bg-white/70 p-3 shadow-card sm:p-4">
       <div className="rounded-3xl border-2 border-duo-blue/30 bg-white p-3">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-          <select
-            value={selectedVideo?.id ?? ''}
-            onChange={(event) => {
-              setSelectedVideoId(event.target.value);
-              setError(null);
-              setMessage(null);
-            }}
-            className="min-w-0 rounded-2xl border-2 border-duo-border bg-white px-4 py-3 text-sm font-extrabold text-duo-ink outline-none focus:border-duo-blue lg:w-[280px]"
-            disabled={state.videos.length === 0}
-          >
-            {state.videos.length === 0 ? (
-              <option>No videos imported</option>
-            ) : (
-              state.videos.map((video) => (
-                <option key={video.id} value={video.id}>
-                  {video.title}
-                </option>
-              ))
-            )}
-          </select>
-          <button
-            type="button"
-            className="btn-duo bg-white text-duo-blueDark shadow-card"
-            onClick={() => setShowImport((value) => !value)}
-          >
-            Import new space
-          </button>
-          <button
-            type="button"
-            className="btn-duo bg-white text-duo-greenDark shadow-card"
-            onClick={() => setShowPrompt((value) => !value)}
-          >
-            Set prompt
-          </button>
-          <div className="flex flex-wrap gap-2 lg:ml-auto">
+        <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+            <select
+              value={selectedVideo?.id ?? ''}
+              onChange={(event) => {
+                setSelectedVideoId(event.target.value);
+                setError(null);
+                setMessage(null);
+              }}
+              className="min-w-0 flex-1 rounded-2xl border-2 border-duo-border bg-white px-4 py-3 text-sm font-extrabold text-duo-ink outline-none focus:border-duo-blue"
+              disabled={state.videos.length === 0}
+            >
+              {state.videos.length === 0 ? (
+                <option>No videos imported</option>
+              ) : (
+                state.videos.map((video) => (
+                  <option key={video.id} value={video.id}>
+                    {video.title}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              type="button"
+              className="btn-duo bg-white text-duo-blueDark shadow-card"
+              onClick={() => setShowImport((value) => !value)}
+            >
+              Import
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 lg:justify-end">
             <span className="chip cursor-default">{state.videos.length} videos</span>
             <span className="chip cursor-default">{sourceLabel(state.sourceUrl)}</span>
-            {!state.prompt.trim() && <span className="chip cursor-default text-duo-blueDark">Default prompt</span>}
+            {!state.analogyPrompt?.trim() && <span className="chip cursor-default text-duo-blueDark">Default analogy</span>}
+            {!(state.layeredPrompt || state.prompt).trim() && <span className="chip cursor-default text-duo-blueDark">Default layered</span>}
           </div>
         </div>
 
@@ -778,26 +808,36 @@ export function NewsYouLearnDaily({
           </div>
         )}
 
-        {showPrompt && (
-          <div className="mt-3 space-y-2">
+        {promptEditor && (
+          <div className="mt-3 space-y-2 rounded-2xl border-2 border-duo-border bg-duo-soft/50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-extrabold text-duo-ink">Set {NOTE_KIND_LABELS[promptEditor]} Prompt</h3>
+              <button
+                type="button"
+                className="chip"
+                onClick={() => setPrompts((current) => ({ ...current, [promptEditor]: DEFAULT_PROMPT_TEXT[promptEditor] }))}
+              >
+                Use default
+              </button>
+            </div>
             <textarea
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              rows={4}
+              value={activePrompt}
+              onChange={(event) => setPrompts((current) => ({ ...current, [promptEditor]: event.target.value }))}
+              rows={5}
               spellCheck={false}
               className="w-full resize-y rounded-2xl border-2 border-duo-border bg-white p-3 font-mono text-[13px] leading-relaxed text-duo-ink focus:border-duo-blue focus:outline-none"
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className={`text-xs font-extrabold ${prompt.length > 8000 ? 'text-duo-red' : 'text-duo-mute'}`}>
-                {(8000 - prompt.length).toLocaleString()} left
+              <span className={`text-xs font-extrabold ${activePrompt.length > 8000 ? 'text-duo-red' : 'text-duo-mute'}`}>
+                {(8000 - activePrompt.length).toLocaleString()} left
               </span>
               <button
                 type="button"
                 className="btn-duo bg-duo-blue text-white shadow-duoBlue disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={savePrompt}
-                disabled={busy !== null || prompt.length > 8000 || prompt === state.prompt}
+                onClick={() => savePrompt(promptEditor)}
+                disabled={busy !== null || activePrompt.length > 8000 || activePrompt === savedPrompt}
               >
-                {busy === 'prompt' ? 'Saving...' : 'Save prompt'}
+                {busy === `prompt-${promptEditor}` ? 'Saving...' : 'Save prompt'}
               </button>
             </div>
           </div>
@@ -812,113 +852,122 @@ export function NewsYouLearnDaily({
       </div>
 
       {selectedVideo ? (
-        <div className="grid min-h-[360px] gap-4 rounded-3xl border-2 border-duo-blue/20 bg-white/70 p-3 lg:grid-cols-[minmax(190px,260px)_1fr]">
-          <aside className="rounded-3xl border-2 border-duo-border bg-duo-soft/50 p-3">
-            <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-duo-blueDark">
-              {sourceLabel(state.sourceUrl)}
-            </p>
-            <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
-              {state.videos.map((video) => {
-                const isActive = video.id === selectedVideo.id;
-                const hasNotes = Boolean(getSummaryForVideo(state.summaries, date, video.id));
-                return (
-                  <button
-                    key={video.id}
-                    type="button"
-                    className={`w-full rounded-2xl border-2 px-3 py-2 text-left transition-colors ${
-                      isActive
-                        ? 'border-duo-blue bg-duo-blue text-white'
-                        : 'border-duo-border bg-white text-duo-ink hover:bg-duo-soft'
-                    }`}
-                    onClick={() => {
-                      setSelectedVideoId(video.id);
-                      setError(null);
-                      setMessage(null);
-                    }}
-                  >
-                    <span className="block truncate text-sm font-extrabold">{video.title}</span>
-                    <span className={`mt-1 block text-[11px] font-extrabold ${isActive ? 'text-white/85' : 'text-duo-mute'}`}>
-                      {video.durationSec > 0 ? formatDuration(video.durationSec) : 'Video'}
-                      {hasNotes ? ' / Notes saved' : ''}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </aside>
-
-          <main className="min-w-0 space-y-3">
-            <div className="rounded-3xl border-2 border-duo-border bg-white p-4 shadow-card">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap gap-2">
-                    <span className="chip cursor-default">{selectedVideo.id === dailyVideo?.id ? 'Today' : 'Selected'}</span>
-                    {selectedVideo.durationSec > 0 && <span className="chip cursor-default">{formatDuration(selectedVideo.durationSec)}</span>}
-                    {summary && <span className="chip cursor-default text-duo-greenDark">Notes saved</span>}
-                    {selectedVideo.completedAt && (
-                      <span className="chip cursor-default text-duo-greenDark">
-                        Done {new Date(selectedVideo.completedAt).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="mt-2 text-lg font-extrabold leading-tight text-duo-ink">{selectedVideo.title}</h3>
-                </div>
+        <main className="min-w-0 space-y-3 rounded-3xl border-2 border-duo-blue/20 bg-white/70 p-3">
+          <div className="rounded-3xl border-2 border-duo-border bg-white p-4 shadow-card">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
                 <div className="flex flex-wrap gap-2">
-                  {!summary && (
-                    <button
-                      type="button"
-                      className="btn-duo bg-duo-blue text-white shadow-duoBlue disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick={() => processVideo(false)}
-                      disabled={busy !== null}
-                    >
-                      {busy === 'process' ? 'Generating...' : 'Generate notes'}
-                    </button>
+                  <span className="chip cursor-default">{selectedVideo.id === dailyVideo?.id ? 'Today' : 'Selected'}</span>
+                  {selectedVideo.durationSec > 0 && <span className="chip cursor-default">{formatDuration(selectedVideo.durationSec)}</span>}
+                  {analogySummary && <span className="chip cursor-default text-duo-greenDark">Analogy saved</span>}
+                  {layeredSummary && <span className="chip cursor-default text-duo-greenDark">Layered saved</span>}
+                  {selectedVideo.completedAt && (
+                    <span className="chip cursor-default text-duo-greenDark">
+                      Done {new Date(selectedVideo.completedAt).toLocaleDateString()}
+                    </span>
                   )}
-                  {summary && (
-                    <button
-                      type="button"
-                      className="btn-duo bg-white text-duo-greenDark shadow-card"
-                      onClick={() => downloadProcessedTranscript(summary)}
-                      disabled={busy !== null}
-                    >
-                      Download JSON
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn-duo bg-duo-green text-white shadow-duoGreen disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => markCompleted(selectedVideo.id)}
-                    disabled={busy !== null}
-                  >
-                    {busy === 'complete' ? 'Saving...' : selectedVideo.completedAt ? 'Update completed' : 'Mark completed'}
-                  </button>
                 </div>
+                <h3 className="mt-2 text-lg font-extrabold leading-tight text-duo-ink">{selectedVideo.title}</h3>
               </div>
-            </div>
-
-            {summary ? (
-              <SummaryBlock summary={summary} />
-            ) : (
-              <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-duo-border bg-duo-soft/60 p-5 text-center">
-                <h3 className="text-lg font-extrabold text-duo-ink">No saved notes yet</h3>
-                <p className="max-w-xl text-sm font-semibold leading-relaxed text-duo-mute">
-                  Generate notes once. Tubeo fetches the transcript, sends it to DeepSeek, then syncs the result for this video and date.
-                </p>
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   className="btn-duo bg-duo-blue text-white shadow-duoBlue disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => processVideo(false)}
+                  onClick={() => processVideo('analogy')}
                   disabled={busy !== null}
                 >
-                  {busy === 'process' ? 'Generating...' : 'Generate notes'}
+                  {busy === 'analogy' ? 'Generating...' : 'Generate Analogy Notes'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-duo bg-duo-green text-white shadow-duoGreen disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => processVideo('layered')}
+                  disabled={busy !== null}
+                >
+                  {busy === 'layered' ? 'Generating...' : 'Generate Layered Notes'}
                 </button>
               </div>
-            )}
-          </main>
-        </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn-duo bg-white text-duo-blueDark shadow-card"
+                onClick={() => setPromptEditor((current) => (current === 'analogy' ? null : 'analogy'))}
+              >
+                Set Analogy Prompt
+              </button>
+              <button
+                type="button"
+                className="btn-duo bg-white text-duo-greenDark shadow-card"
+                onClick={() => setPromptEditor((current) => (current === 'layered' ? null : 'layered'))}
+              >
+                Set Layered Prompt
+              </button>
+              {summary && (
+                <button
+                  type="button"
+                  className="btn-duo bg-white text-duo-greenDark shadow-card"
+                  onClick={() => downloadProcessedTranscript(summary)}
+                  disabled={busy !== null}
+                >
+                  Download JSON
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn-duo bg-white text-duo-blueDark shadow-card disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => markCompleted(selectedVideo.id)}
+                disabled={busy !== null}
+              >
+                {busy === 'complete' ? 'Saving...' : selectedVideo.completedAt ? 'Update completed' : 'Mark completed'}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {(['analogy', 'layered'] as const).map((kind) => {
+              const saved = kind === 'analogy' ? analogySummary : layeredSummary;
+              const active = activeNoteKind === kind;
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  className={`rounded-full border-2 px-4 py-2 text-sm font-extrabold transition-colors ${
+                    active
+                      ? 'border-duo-blue bg-duo-blue text-white shadow-duoBlue'
+                      : 'border-duo-border bg-white text-duo-ink hover:bg-duo-soft'
+                  }`}
+                  onClick={() => setActiveNoteKind(kind)}
+                >
+                  {NOTE_KIND_LABELS[kind]} Notes {saved ? 'saved' : 'empty'}
+                </button>
+              );
+            })}
+          </div>
+
+          {summary ? (
+            <SummaryBlock summary={summary} />
+          ) : (
+            <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-duo-border bg-duo-soft/60 p-5 text-center">
+              <h3 className="text-lg font-extrabold text-duo-ink">No {NOTE_KIND_LABELS[activeNoteKind].toLowerCase()} notes yet</h3>
+              <p className="max-w-xl text-sm font-semibold leading-relaxed text-duo-mute">
+                Generate this note type once. Tubeo fetches the transcript, sends it to DeepSeek, then syncs the result for this video and date.
+              </p>
+              <button
+                type="button"
+                className="btn-duo bg-duo-blue text-white shadow-duoBlue disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => processVideo(activeNoteKind)}
+                disabled={busy !== null}
+              >
+                {busy === activeNoteKind ? 'Generating...' : `Generate ${NOTE_KIND_LABELS[activeNoteKind]} Notes`}
+              </button>
+            </div>
+          )}
+        </main>
       ) : (
         <div className="rounded-chonk border-2 border-dashed border-duo-border bg-duo-soft/60 px-4 py-6 text-sm font-bold text-duo-mute">
-          No videos imported yet. Use Import new space above to add a public YouLearn space, folder, or playlist.
+          No videos imported yet. Use Import to add a public YouLearn space, folder, or playlist.
         </div>
       )}
     </section>

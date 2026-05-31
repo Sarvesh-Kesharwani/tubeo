@@ -8,6 +8,7 @@ import {
   DEFAULT_CHANNEL_SPACE,
   type ChannelPreferenceStore,
   type NewsClipWiseProgress,
+  type NewsYouLearnNoteKind,
   type NewsYouLearnState,
   type NewsYouLearnVideo,
   type NewsYouLearnVideoSummary,
@@ -35,8 +36,27 @@ function promptHash(prompt: string): string {
   return createHash('sha256').update(prompt).digest('hex').slice(0, 16);
 }
 
-function summaryKey(date: string, videoId: string): string {
-  return `${date}:${videoId}`;
+const DEFAULT_ANALOGY_PROMPT =
+  'Convert this YouLearn transcript into strict JSON for analogy-based UPSC notes. Shape: {"title":"...","core_analogy":"...","analogy_map":[{"source":"...","target":"...","explanation":"..."}],"key_points":["..."],"exam_takeaways":["..."],"revision_notes":["..."]}. Use Hinglish. Make abstract ideas simple through real-life analogies. Return JSON only.';
+
+const DEFAULT_LAYERED_PROMPT =
+  'Convert this YouLearn transcript into strict JSON for layered UPSC notes. Shape: {"layer0":{"goal":"...","roadmap":["..."]},"layer1":{"terms":[{"term":"...","definition":"..."}],"events":[{"event":"...","description":"..."}]},"layer2":{"concepts":[{"concept":"...","explanation":"..."}]},"layer3":{"geopolitical_landscape":["..."]},"layer4":{"stakeholders":["..."]},"layer5":{"timeline":["..."]},"layer6":{"outcomes":["..."]},"layer7":{"connections":["..."]}}. Use Hinglish. Return JSON only.';
+
+function summaryKey(date: string, videoId: string, noteKind: NewsYouLearnNoteKind = 'layered'): string {
+  return `${noteKind}:${date}:${videoId}`;
+}
+
+function promptForKind(state: NewsYouLearnState, noteKind: NewsYouLearnNoteKind): string {
+  if (noteKind === 'analogy') return state.analogyPrompt?.trim() || DEFAULT_ANALOGY_PROMPT;
+  return state.layeredPrompt?.trim() || state.prompt.trim() || DEFAULT_LAYERED_PROMPT;
+}
+
+function bestSummaryForVideo(state: NewsYouLearnState, videoId: string): NewsYouLearnVideoSummary | null {
+  return (
+    Object.values(state.summaries)
+      .filter((summary) => summary.videoId === videoId)
+      .sort((a, b) => Date.parse(b.generatedAt) - Date.parse(a.generatedAt))[0] ?? null
+  );
 }
 
 function emptyStore(): ChannelPreferenceStore {
@@ -246,7 +266,7 @@ async function hydrateFromDailyUpscClipWiseTable(
   const clipwiseProgress = { ...(state.clipwiseProgress ?? {}) };
 
   for (const record of upsc) {
-    if (record.summary) summaries[summaryKey(record.summary.date, record.summary.videoId)] = record.summary;
+    if (record.summary) summaries[summaryKey(record.summary.date, record.summary.videoId, record.summary.noteKind)] = record.summary;
   }
 
   for (const record of clipwise) {
@@ -285,7 +305,7 @@ async function persistDailyUpscClipWiseVideos(
           markedCompleted: Boolean(video.completedAt),
           summary:
             category === 'upsc'
-              ? Object.values(state.summaries).find((summary) => summary.videoId === video.id) ?? null
+              ? bestSummaryForVideo(state, video.id)
               : null,
           clipwiseProgress:
             category === 'clipwise'
@@ -359,13 +379,24 @@ async function writeNewsYouLearnState(
 export async function saveNewsYouLearnPrompt(
   session: Session | null | undefined,
   prompt: string,
+  noteKind: NewsYouLearnNoteKind = 'layered',
 ): Promise<NewsYouLearnState> {
   const state = await readNewsYouLearnState(session);
   const now = new Date().toISOString();
+  const trimmed = prompt.slice(0, 8000);
+  if (noteKind === 'analogy') {
+    return writeNewsYouLearnState(session, {
+      ...state,
+      analogyPrompt: trimmed,
+      analogyPromptUpdatedAt: now,
+    });
+  }
   return writeNewsYouLearnState(session, {
     ...state,
-    prompt: prompt.slice(0, 8000),
+    prompt: trimmed,
     promptUpdatedAt: now,
+    layeredPrompt: trimmed,
+    layeredPromptUpdatedAt: now,
   });
 }
 
@@ -471,7 +502,7 @@ export async function markNewsYouLearnVideoCompleted(
         video,
         sourceUrl: state.sourceUrl,
         markedCompleted: true,
-        summary: Object.values(state.summaries).find((summary) => summary.videoId === video.id) ?? null,
+        summary: bestSummaryForVideo(state, video.id),
       });
     } catch {
       // Legacy sync remains authoritative until the new table is available.
@@ -600,9 +631,10 @@ export async function saveNewsYouLearnClipWiseProgress(
 export async function processDailyNewsYouLearnVideo(
   session: Session | null | undefined,
   date: string,
-  options: { force?: boolean; videoId?: string; fallbackVideos?: unknown } = {},
+  options: { force?: boolean; videoId?: string; fallbackVideos?: unknown; noteKind?: NewsYouLearnNoteKind } = {},
 ): Promise<{ state: NewsYouLearnState; summary: NewsYouLearnVideoSummary }> {
   let state = await readNewsYouLearnState(session);
+  const noteKind = options.noteKind === 'analogy' ? 'analogy' : 'layered';
   const requestedVideoId = options.videoId?.trim() || state.selectedVideoIds?.[date] || '';
   if (requestedVideoId && !state.videos.some((item) => item.id === requestedVideoId)) {
     const fallbackVideos = normalizeFallbackVideos(options.fallbackVideos);
@@ -622,9 +654,14 @@ export async function processDailyNewsYouLearnVideo(
   const video = state.videos.find((item) => item.id === requestedVideoId) ?? dailyVideo;
   if (!video) throw new Error('Import a YouLearn space before processing daily video.');
 
-  const promptH = promptHash(state.prompt);
-  const key = summaryKey(date, video.id);
-  const cached = state.summaries[key] ?? (state.summaries[date]?.videoId === video.id ? state.summaries[date] : null);
+  const prompt = promptForKind(state, noteKind);
+  const promptH = promptHash(prompt);
+  const key = summaryKey(date, video.id, noteKind);
+  const legacyKey = `${date}:${video.id}`;
+  const cached =
+    state.summaries[key] ??
+    (noteKind === 'layered' && state.summaries[legacyKey]?.videoId === video.id ? state.summaries[legacyKey] : null) ??
+    (noteKind === 'layered' && state.summaries[date]?.videoId === video.id ? state.summaries[date] : null);
   if (!options.force && cached?.videoId === video.id && cached.promptHash === promptH) {
     const next =
       state.selectedVideoIds?.[date] === video.id
@@ -663,7 +700,7 @@ export async function processDailyNewsYouLearnVideo(
     videoTitle: video.title,
     videoUrl: video.url,
     transcript,
-    userPrompt: state.prompt,
+    userPrompt: prompt,
   });
 
   const summary: NewsYouLearnVideoSummary = {
@@ -672,6 +709,7 @@ export async function processDailyNewsYouLearnVideo(
     videoTitle: video.title,
     videoUrl: video.url,
     thumbnail: video.thumbnail,
+    noteKind,
     data: result.data,
     raw: result.raw,
     promptHash: promptH,

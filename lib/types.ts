@@ -111,11 +111,14 @@ export interface NewsYouLearnVideoSummary {
   videoTitle: string;
   videoUrl: string;
   thumbnail?: string;
+  noteKind?: NewsYouLearnNoteKind;
   data: unknown;
   raw: string;
   promptHash: string;
   generatedAt: string;
 }
+
+export type NewsYouLearnNoteKind = 'analogy' | 'layered';
 
 export interface NewsClipWiseProgress {
   videoId: string;
@@ -133,6 +136,10 @@ export interface NewsYouLearnState {
   clipwiseImportedAt?: string;
   prompt: string;
   promptUpdatedAt?: string;
+  analogyPrompt?: string;
+  analogyPromptUpdatedAt?: string;
+  layeredPrompt?: string;
+  layeredPromptUpdatedAt?: string;
   videos: NewsYouLearnVideo[];
   clipwiseVideos?: NewsYouLearnVideo[];
   summaries: Record<string, NewsYouLearnVideoSummary>;
