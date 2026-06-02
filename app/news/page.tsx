@@ -98,6 +98,24 @@ export default async function NewsPage({
             />
             Dialog Dungeon
           </a>
+          <a
+            href="https://app.youlearn.ai/space/c9241bc0721046c8"
+            target="_blank"
+            rel="noreferrer"
+            className="btn-duo bg-white text-duo-blueDark shadow-card"
+            title="Open AI Interview Prep"
+          >
+            AI-Interview-Prep
+          </a>
+          <a
+            href="https://grok.com/imagine"
+            target="_blank"
+            rel="noreferrer"
+            className="btn-duo bg-white text-duo-greenDark shadow-card"
+            title="Open AI GameDev"
+          >
+            AI-GameDev
+          </a>
         </div>
       </NewsSectionBlock>
 
